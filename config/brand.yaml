@@ -1,0 +1,6 @@
+# Brand defaults. classic style keeps branding out of the collage itself;
+# source attribution lives in the publish copy and optional 04_source page.
+brand:
+  name: ""
+  watermark: false
+  source_attribution: "in_copy_only"   # classic: no per-strip branding

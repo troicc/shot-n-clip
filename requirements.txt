@@ -1,0 +1,4 @@
+Pillow>=10.0.0
+PyYAML>=6.0
+yt-dlp>=2025.1.1
+pytest>=7.0

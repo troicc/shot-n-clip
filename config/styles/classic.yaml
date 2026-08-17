@@ -1,0 +1,18 @@
+# classic style: 6 equal-height strips, dark separators, translucent black
+# text bands, centered white text. No logos, no QR codes, no per-strip source.
+name: classic
+canvas: [1080, 1440]
+corner_radius: 48          # 44-52px window
+strip_gap: 3               # 2-4px dark separators
+gap_color: [12, 12, 14]
+band_alpha: 178            # 255 * 0.70 ≈ 70% opacity (allowed 62%-76%)
+text_color: [255, 255, 255]
+max_lines: 2
+inline_default_count: 5
+
+zh_font_range: [50, 42]    # [max, min] autoshrink window
+en_font_range: [36, 28]
+inline_zh_font_range: [38, 32]
+inline_en_font_range: [28, 22]
+zh_line_spacing: 1.18
+en_line_spacing: 1.12

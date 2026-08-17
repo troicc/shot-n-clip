@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# qcard launcher: prefer the project venv python, fall back to python3.
+set -euo pipefail
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="$(dirname "$HERE")"
+if [ -x "$ROOT/.venv/bin/python" ]; then
+  export PYTHONPATH="$ROOT/src${PYTHONPATH:+:$PYTHONPATH}"
+  exec "$ROOT/.venv/bin/python" -m qcard.cli "$@"
+else
+  export PYTHONPATH="$ROOT/src${PYTHONPATH:+:$PYTHONPATH}"
+  exec python3 -m qcard.cli "$@"
+fi
