@@ -47,7 +47,7 @@ CASE_LITERAL_METAPHOR = {
     "defect": "literal_translation",
     "exact_source_text": "The fascinated people leave big footprints.",
     "bad_zh": "着迷的人，会留下很大的脚印。",
-    "good_zh": "着迷的人，影响会远远超出自己。",
+    "good_zh": "真正着迷的人，往往会留下更深的印记。",
 }
 
 # 2. V1 entity hallucination: Uncle Richard → 一句话伯乐
@@ -85,7 +85,7 @@ CASE_MAYBE_ABSOLUTE = {
 CASE_TRANSLATIONESE = {
     "defect": "translationese",
     "bad_zh": "着迷自带机制。",
-    "good_zh": "着迷会推着你主动去钻研。",
+    "good_zh": "一旦真的着迷，你会不由自主地继续钻研。",
 }
 
 # 7. display_en paraphrase (semantic synonym replacement)
