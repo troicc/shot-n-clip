@@ -1,7 +1,7 @@
 [project]
 name = "quote-strip-studio"
-version = "0.1.0"
-description = "Deterministic local CLI that turns a YouTube interview into vertical quote-strip collages for Xiaohongshu / WeChat. No runtime LLM API calls."
+version = "0.3.0"
+description = "Source-grounded YouTube quote-card pipeline for Xiaohongshu and WeChat, with deterministic V3 editorial quality gates."
 requires-python = ">=3.9"
 dependencies = [
     "Pillow>=10.0.0",
@@ -12,6 +12,10 @@ dependencies = [
 [project.optional-dependencies]
 dev = ["pytest>=7.0"]
 
+[project.scripts]
+qcard = "qcard.cli:main"
+qcard-quality = "qcard.editorial_quality_v3.cli:main"
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
@@ -21,4 +25,8 @@ requires = ["setuptools>=61"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
-packages = { find = { include = ["qcard*"] } }
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["qcard*"]

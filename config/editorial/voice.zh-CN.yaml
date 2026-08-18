@@ -1,40 +1,85 @@
-# 中文风格档案 — 所有 zh-editor 候选与 platform-copy-editor 必须遵守
+# 中文编辑风格档案 — quote cards 与平台文案共同遵守
 voice:
   register: 理性、克制、自然口语
-  density: 信息密度高，但不端着；像中文编辑写的，不像逐字字幕
-  sentence_shape: 主谓宾短句优先；避免英文语序镜像（长定语从句前置）
-  no_forced_aphorism: 不故作金句，不强行升华；原文平实就平实
-  keep_hedging: 保留原文的犹豫、幽默和限定（maybe/often/can → 也许/常常/可以）
-  shortening: 可以短，但不能为了短而改变命题
-  person: 不使用"你一定要""你必须"等命令式二人称（原文祈使句除外）
+  density: 信息密度高，但不端着；像中文编辑写的，不像逐字字幕或励志海报
+  sentence_shape: 完整主谓结构优先；允许自然复句，不为“金句感”砍成名词碎片
+  no_forced_aphorism: 原文平实就平实；不强行升华、不替嘉宾总结人生规律
+  keep_hedging: 保留犹豫、幽默、范围与限定
+  shortening: 可以重排和删口头重复，不能删命题、限定、数字、身份或因果方向
+  person: 原文不是祈使句时，不擅自改成“你必须/你一定要”
+  metaphor: 可把英文隐喻自然化，但不能扩大影响、确定性或道德判断
 
-# 语气词映射参考（zh-editor 用，非穷举）
+# 通过前必须回答 true；V3 translation_audit 使用
+naturalness_tests:
+  native_without_source: 隐去英文后，中文仍像原生表达，不需要脑内还原英文结构
+  read_aloud: 一口气读完不拗口、不停顿找主语
+  collocation: 动宾、介宾、修饰关系符合中文常见搭配
+  no_translationese: 不镜像英文副词、被动、抽象名词链和介词结构
+  no_slogan_clipping: 不为了短而产生“影响超自己”“零刻意努力”式残句
+
 modality_map:
   maybe: 也许/可能
-  perhaps: 或许
-  often: 常常
+  perhaps: 或许/可能
+  often: 常常/往往
   usually: 通常
-  tend to: 往往
-  can: 可以/能
+  tend to: 往往/倾向于
+  can: 可以/能/会
   might: 可能
   i think: 我觉得/我认为
-  i fear: 我担心
+  i fear: 我担心/恐怕
   i have a hunch: 我有种直觉/我猜
 
-# 翻译腔黑名单（出现即 revise）
+# 源概念守卫：原文出现时，中文不得无故抹平
+source_anchors:
+  obsessive: 痴迷/着迷/入迷/近乎痴迷
+  artisan: 手艺/匠/工匠/创作者/专业者
+  ambivalent: 犹豫/不上不下/没那么在意/提不起兴趣/态度暧昧
+  conscious_effort: 刻意/有意识/费劲/用力/逼自己
+  input_output: 输入与输出，或等价的起因与结果；不得凭空加入“成功”
+
+# editorial_lint.py 读取：出现即 fail。全部是本项目真实回归或高置信翻译腔。
 translationese:
   - 自带机制
-  - 留下(很大)?的脚印        # "leave big footprints" 直译
-  - 一步一个脚印也(不)?算      # 误用
-  - 输入.?输出                # input/output 机翻（语境为学习机制时）
+  - 留下(很大)?的脚印
+  - 学习自己会发生
+  - 零(刻意|有意识|意识)?努力
+  - 自动(地)?(去)?(学|学习|钻研)
+  - 影响\s*(远)?超自己
+  - 对着迷的人
+  - 学着迷的东西
+  - 该追随的是
+  - 着迷会推着你
+  - 本来就没感觉的
+  - 一步一个脚印也(不)?算
   - 让我们
-  - 事实上，?[，。]            # 开头 as a matter of fact 腔
+  - 事实上，?[，。]
   - 值得注意的是
-  - 本质上(是)?(说)?[，。]     # essentially 开头腔
-  - (一个)?关于.{0,8}的故事    # a story about 开头腔（叙述类除外）
+  - 本质上(是)?(说)?[，。]
+  - (一个)?关于.{0,8}的故事
 
-# 标点倾向
+# 不可凭空加入的高风险概念；V3 根据源文做成对校验
+unsupported_injection_watchlist:
+  - 成功
+  - 命运
+  - 人生
+  - 底层逻辑
+  - 终极
+  - 所有人
+  - 永远
+
+sentence_preferences:
+  prefer:
+    - 一旦真的着迷，你会不由自主地继续钻研。
+    - 学起来几乎不费劲，也不用刻意逼自己。
+    - 可那些所谓的“安全工作”，如果也不再安全呢？
+  avoid:
+    - 学习自己会发生，零刻意努力。
+    - 着迷的人，影响超自己。
+    - 有人用 AI 干脆不学。
+  note: 示例只说明自然度方向，不得脱离原文复用。
+
 punctuation:
   max_dash_per_sentence: 1
   prefer_chinese_punct: true
-  nested_quotes: 避免「引号中'再引号'」嵌套；改写结构
+  nested_quotes: 避免多层嵌套；优先重写句法
+  no_exclamation_stacking: true
