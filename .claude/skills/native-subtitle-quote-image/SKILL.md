@@ -1,92 +1,191 @@
 ---
 name: native-subtitle-quote-image
-description: V2 pipeline — turns one public YouTube interview into MULTIPLE independently publishable theme packs, each with verified source spans, entity-locked natural Chinese (multi-candidate + blind fidelity review), zh/en/bilingual 1080x1440 collages, and Xiaohongshu/WeChat copy. Use for 金句图 / 语录拼贴 / 访谈金句 / quote cards.
+description: V3 editorial pipeline for source-grounded multi-pack quote cards. Mines a broad candidate pool, independently audits selection, performs claim-unit translation review, then renders Chinese/English/bilingual cards and platform copy.
 ---
 
-# native-subtitle-quote-image (V2)
+# native-subtitle-quote-image — V3 editorial-quality pipeline
 
-You orchestrate a multi-agent editorial pipeline. Semantic work (angles,
-translation, review, copy) happens **in this session** via the project
-agents; deterministic work (fetch, evidence maps, validation, rendering)
-runs through `bin/qcard`. **Runtime code never calls an LLM API.**
+The project is a Claude Code skill plus deterministic local tools. Runtime
+Python never calls an LLM API. Semantic work happens in the current coding-agent
+session; source verification, hard quality gates, frame extraction and rendering
+are deterministic.
 
 ## Invocation
 
-```
+```text
 /native-subtitle-quote-image '<youtube-url>' --packs auto --max-packs 4 --mode all --copy both --quality strict
 ```
 
-`--packs auto` (only threshold-passing packs), `--max-packs N` (cap, never a
-quota), `--mode pair|inline|all`, `--copy both|xhs|wechat`, `--quality strict`
-(enables `validate-editorial --strict`). Always single-quote the URL.
+Always single-quote the URL in zsh.
 
-## Orchestration — run stages in order; resume, don't redo
+## Why V3 exists
 
-0. **Preflight**: `bin/qcard preflight` — abort on FAIL.
-1. **Fetch**: `bin/qcard fetch '<url>'` (cached → no network). Prefer manual
-   captions over ASR when both exist (`--list` via the upstream skill if
-   unsure).
-2. **Evidence layer**: `bin/qcard source-map work/<id>` → `source_map.json`
-   + `entity_glossary.json`. Review `needs_review` entities; if the video's
-   key people are unresolved, ask the user once or propose an
-   `entity_overrides.yaml` addition.
-3. **Style memory**: read `config/editorial/approved_examples.jsonl` (last
-   20) + `rejected_examples.jsonl` (last 10) as pattern reference only.
-4. **Angles → packs**: run the **angle-pack-editor** agent with the FULL
-   chunked transcript. Save its JSON as `work/<id>/angle_packs.json`.
-   4–10 candidates → dedupe → ≤ max-packs ready. Rejected packs keep
-   concrete reasons.
-5. **Per ready pack** (in `work/<id>/packs/<pack-id>/`):
-   a. **source-auditor** agent → audited spans, ASR flags, entities.
-   b. **zh-editor** agent → five-step output per quote (semantic_brief →
-      faithful_zh → 3 candidates → editor_choice → compact_zh).
-   c. **fidelity-reviewer** agent (blind — don't show it the editor's
-      reasons) → scores + verdict. `revise` → send the precise instruction
-      back to zh-editor; **max 2 rounds**, then manual_review.
-   d. Assemble `editorial_pack.json` (schemas/v2/editorial-pack.schema.json).
-   e. **platform-copy-editor** agent → `publish_xhs.json` + 
-      `publish_wechat.json` (content_brief first, specific not generic).
-6. **Strict validation**: `bin/qcard validate-editorial work/<id> --strict`.
-   Fix every ERROR at the file that caused it; never loosen the validator.
-7. **Frames + render**: `bin/qcard render-packs work/<id> --mode all`
-   (uses cached video; no re-fetch). Produces per-pack `outputs/` with
-   01_zh/02_en/03_bilingual + contact_sheet + layout_report.json; exports
-   review clips for ASR-suspect quotes and writes `review_queue.md`.
-8. **Visual QA**: actually open the images. Check: 1080×1440, rounded
-   corners, no mid-word breaks, no widow words, bands inside strips,
-   pair pages identical frames/order, inline 5-quote layout. Bad frame →
-   set `frame_time_sec` (from contact_sheet) and re-render. At least one
-   look→fix→re-render iteration is expected.
-9. **Quality reports**: per pack write `quality_report.json` per
-   references/quality-gates.md gates (ready only if ALL pass).
-10. **Comparison + report**: for an upgraded video, generate
-    `comparison_before_after.jpg` + `comparison_report.md` against V1
-    outputs; run `bin/qcard report work/<id>`; `bin/qcard open work/<id>`.
-11. **Final reply**: list real absolute paths, ready/rejected/manual counts,
-    review-queue items, and the day-to-day command. Never just "done".
+V2 had good schemas but could still approve weak material because one model pass
+both chose and justified quotes, reviewer scores were self-reported, and style
+lint could not catch semantic inventions such as adding “成功” to a source that
+only said input/output. V3 adds three compulsory artifacts:
 
-## Agents (project-level, model: inherit)
-`.claude/agents/`: source-auditor · angle-pack-editor · zh-editor ·
-fidelity-reviewer · platform-copy-editor — each outputs only its JSON.
+- `candidate_pool.json` — broad source-verbatim candidates, including rejects;
+- `selection_audit.json` — independent line-by-line direct-support/drop/
+  competitor review;
+- `packs/<id>/translation_audit.json` — claim units, back-translation, empty
+  fidelity ledger and native-Chinese checks.
 
-## References
-- references/editorial-policy.md — non-negotiables + V2 failure handling
-- references/translation-workflow.md — five-step zh editorial + examples
-- references/platform-copy-policy.md — xhs/wechat copy rules
-- references/quality-gates.md — all thresholds in one page
-- references/quote-selection.md · layout-spec.md — V1 baselines still apply
+The existing V2 `editorial_pack.json` remains the render contract.
 
-## V1 failure handling (unchanged)
-No captions → report, no Whisper. Blocked → upstream fallback, no cookie
-reads without approval. Subtitle-OK/video-fail → keep packs, report
-"渲染未完成". Font missing → print tried paths. Overflow (exit 3) → swap
-quote or compact_zh, never shrink below floor.
+## Pipeline — run in order and resume completed stages
 
-## User revision loop (still offline)
-- re-edit one pack's zh/copy → edit files → `validate-editorial` →
-  `render-packs`
-- swap a frame → `frame_time_sec` from contact_sheet → re-render
-- different angle pack → rebuild that pack from angle_packs.json
-- approve/reject style memory:
-  `bin/qcard approve work/<id> --pack <pid>`
-  `bin/qcard reject work/<id> --pack <pid> --reason ai_cliche`
+### 0. Preflight and fetch
+
+```bash
+bin/qcard preflight
+bin/qcard fetch '<youtube-url>'
+bin/qcard source-map work/<video-id>
+```
+
+Prefer manual source-language captions. Automatic captions are allowed only
+with ASR warnings and review clips for doubtful names/numbers.
+
+### 1. Prepare source chunks
+
+```bash
+bin/qcard-quality prepare work/<video-id>
+```
+
+This writes `editorial_inputs/manifest.json` and ~18k-character transcript
+chunks with three-segment boundary overlap. Every manifest chunk must be mined;
+do not infer a long video from its opening.
+
+### 2. Broad candidate mining
+
+For every manifest chunk, invoke `quote-candidate-miner`. Save each returned JSON
+under:
+
+`work/<video-id>/editorial_inputs/candidates/chunk-XXXX.json`
+
+The miner must preserve exact source spans and explicitly reject bare answers,
+setup-only numbers, unresolved pronouns, generic filler and low-confidence ASR.
+
+### 3. Curate pool and propose packs
+
+Invoke `angle-pack-editor` with the manifest and all chunk candidate files. It
+must write:
+
+- `candidate_pool.json`
+- `pack_proposals.json`
+
+Then run:
+
+```bash
+bin/qcard-quality validate-candidates work/<video-id>
+```
+
+Fix every error at the source artifact. Never loosen the validator.
+
+### 4. Independent selection review
+
+Invoke `selection-reviewer`. It writes `selection_audit.json` after standalone,
+direct-support, incremental-value, drop, competitor and weakest-line tests.
+
+```bash
+bin/qcard-quality validate-selection work/<video-id>
+```
+
+Only `status=ready` packs continue. A 90-minute video may yield four packs or
+none; pack count is a ceiling, never a quota.
+
+### 5. Source audit and Chinese editorial pass
+
+For each ready pack:
+
+1. Run `source-auditor` on the selected candidate spans.
+2. Run `zh-editor` per quote. Assemble:
+   - the existing V2 `packs/<id>/editorial_pack.json`;
+   - V3 `packs/<id>/translation_audit.json`.
+3. Run `fidelity-reviewer` blind. Do not show editor self-rationale.
+4. Send `revise` issues back to zh-editor, maximum two rounds.
+5. `reject_selection` returns the line to selection-reviewer; do not “translate
+   around” a weak excerpt.
+6. A doubtful source becomes `manual_review`, not a confident quote.
+
+Validate each pack immediately:
+
+```bash
+bin/qcard-quality validate-translation work/<video-id> --pack pack-01
+```
+
+### 6. Platform copy
+
+Only after translation passes, invoke `platform-copy-editor` and write:
+
+- `publish_xhs.json`
+- `publish_wechat.json`
+
+Copy must state the pack's specific tension/mechanism, not praise itself. It may
+not invent first-person experience, identities, numbers or outcomes.
+
+### 7. Dual strict validation
+
+Both validators are required:
+
+```bash
+bin/qcard validate-editorial work/<video-id> --strict
+bin/qcard-quality validate work/<video-id> --strict
+```
+
+V2 protects source spans, entities, English edits, modality, copy schema and
+layout. V3 protects candidate quality, selection independence, claim coverage,
+back-translation, natural Chinese and source/selection/translation binding.
+
+A model-written score never overrides a hard error.
+
+### 8. Render and visual QA
+
+```bash
+bin/qcard render-packs work/<video-id> --mode all
+```
+
+Actually open every output. Check:
+
+- 1080×1440 and rounded outer corners;
+- no English word split;
+- no tiny widow line;
+- Chinese reads naturally without looking at English;
+- pair pages use identical frame order;
+- inline bilingual defaults to five quotes;
+- selected frame matches the speaker and avoids blinking/transition frames.
+
+Use contact sheet timestamps to pin a better frame, then rerender. At least one
+look → fix → rerender cycle is expected for a real demo.
+
+### 9. Final report and style memory
+
+```bash
+bin/qcard report work/<video-id>
+bin/qcard approve work/<video-id> --pack pack-01
+```
+
+Approve only after human review. Rejected packs should be recorded with a
+specific reason (`weak_angle`, `literal_translation`, `unnatural_wording`,
+`generic_copy`, etc.). The next run reads seed examples plus recent user-approved
+and rejected examples.
+
+## Non-negotiable regressions
+
+- Never publish `Only 23 percent said yes.` without the survey question inside
+  the contiguous source quote.
+- Never turn input/output into “成功的原因/结果” unless success exists in source.
+- Reject Chinese such as `学习自己会发生`, `零刻意努力`, `自动去学`,
+  `影响超自己`, `对着迷的人`.
+- Preserve craft identity in `artisans`, modality in `maybe`, exact numbers,
+  names, negation and causal direction.
+- Do not select two lines that both merely say “着迷会让学习自动发生”.
+- Do not force six lines or four packs.
+
+## Failure handling
+
+No captions → report; no Whisper fallback in this project. YouTube blocked → use
+upstream fallbacks, never read browser cookies without user approval. Video
+download failure → keep editorial artifacts and report render incomplete. Text
+overflow → use a faithful compact variant or replace the quote; never shrink
+below the readability floor.

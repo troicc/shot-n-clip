@@ -1,0 +1,130 @@
+"""Independent pack-selection validation."""
+from __future__ import annotations
+
+from typing import Any, Dict, List, Mapping, Tuple
+
+from .common import DIRECT_SUPPORT, SCHEMA_VERSION, Report, _nonempty, similarity
+
+def validate_selection_audit(
+    data: Any, candidate_index: Mapping[str, dict]
+) -> Tuple[Report, Dict[str, dict]]:
+    report = Report()
+    packs_index: Dict[str, dict] = {}
+    if not isinstance(data, dict):
+        report.error("selection_audit must be an object")
+        return report, packs_index
+    if data.get("schema_version") != SCHEMA_VERSION:
+        report.error(f"selection_audit.schema_version must be {SCHEMA_VERSION!r}")
+    packs = data.get("packs")
+    if not isinstance(packs, list):
+        report.error("selection_audit.packs must be an array")
+        return report, packs_index
+
+    used_candidates: Dict[str, str] = {}
+    for pos, pack in enumerate(packs):
+        if not isinstance(pack, dict):
+            report.error(f"packs[{pos}] must be an object")
+            continue
+        pid = pack.get("pack_id")
+        if not _nonempty(pid):
+            report.error(f"packs[{pos}].pack_id must be non-empty")
+            continue
+        pid = str(pid)
+        packs_index[pid] = pack
+        status = pack.get("status")
+        if status not in {"ready", "rejected", "manual_review", "candidate"}:
+            report.error(f"{pid}.status invalid: {status!r}")
+        if not _nonempty(pack.get("core_claim")):
+            report.error(f"{pid}.core_claim must be non-empty")
+        selected = pack.get("selected")
+        if not isinstance(selected, list):
+            report.error(f"{pid}.selected must be an array")
+            continue
+        if status == "ready" and not 5 <= len(selected) <= 6:
+            report.error(f"{pid}: ready pack needs 5-6 selected quotes, found {len(selected)}")
+
+        roles: List[str] = []
+        incremental: List[str] = []
+        selected_candidates: List[dict] = []
+        for idx, item in enumerate(selected):
+            tag = f"{pid}.selected[{idx}]"
+            if not isinstance(item, dict):
+                report.error(f"{tag} must be an object")
+                continue
+            cid = item.get("candidate_id")
+            if not _nonempty(cid) or str(cid) not in candidate_index:
+                report.error(f"{tag}.candidate_id {cid!r} not found in candidate_pool")
+                continue
+            cid = str(cid)
+            candidate = candidate_index[cid]
+            selected_candidates.append(candidate)
+            if status == "ready" and candidate.get("verdict") != "pass":
+                report.error(f"{tag}: selected candidate {cid} does not have verdict='pass'")
+            if status == "ready" and cid in used_candidates and used_candidates[cid] != pid:
+                report.error(
+                    f"candidate {cid} reused by ready packs {used_candidates[cid]} and {pid}"
+                )
+            if status == "ready":
+                used_candidates[cid] = pid
+            support = item.get("support")
+            if status == "ready" and support not in DIRECT_SUPPORT:
+                report.error(f"{tag}: support must be direct/essential, got {support!r}")
+            role = item.get("role")
+            if role not in {"hook", "problem", "mechanism", "evidence", "method", "close"}:
+                report.error(f"{tag}.role invalid: {role!r}")
+            else:
+                roles.append(str(role))
+            value = item.get("incremental_value")
+            if not _nonempty(value):
+                report.error(f"{tag}.incremental_value must be non-empty")
+            else:
+                incremental.append(str(value))
+
+        if status == "ready" and selected:
+            if roles and roles[0] != "hook":
+                report.error(f"{pid}: first quote role must be hook, got {roles[0]!r}")
+            if roles and roles[-1] != "close":
+                report.error(f"{pid}: last quote role must be close, got {roles[-1]!r}")
+            if len(set(roles)) < 4:
+                report.error(f"{pid}: pack needs at least 4 distinct rhetorical roles, got {roles}")
+
+            review = pack.get("selection_review")
+            if not isinstance(review, dict) or review.get("verdict") != "pass":
+                report.error(f"{pid}: selection_review.verdict must be 'pass'")
+            elif review.get("issues"):
+                report.error(f"{pid}: passing selection_review must have an empty issues array")
+
+            # Every line must add a different proposition, not merely restate the theme.
+            for i, left in enumerate(selected_candidates):
+                for right in selected_candidates[i + 1 :]:
+                    sim = similarity(
+                        str(left.get("claim_signature", "")),
+                        str(right.get("claim_signature", "")),
+                    )
+                    if sim >= 0.70:
+                        report.error(
+                            f"{pid}: selected claims {left.get('candidate_id')} and "
+                            f"{right.get('candidate_id')} are redundant ({sim:.0%})"
+                        )
+            for i, left in enumerate(incremental):
+                for right in incremental[i + 1 :]:
+                    sim = similarity(left, right)
+                    if sim >= 0.75:
+                        report.error(
+                            f"{pid}: incremental_value entries repeat the same contribution ({sim:.0%})"
+                        )
+
+            # No more than two quote centres inside any rolling 30-second window.
+            centres = []
+            for candidate in selected_candidates:
+                start, end = candidate.get("start_sec"), candidate.get("end_sec")
+                if isinstance(start, (int, float)) and isinstance(end, (int, float)):
+                    centres.append((str(candidate.get("candidate_id")), (float(start) + float(end)) / 2))
+            for cid, centre in centres:
+                crowd = [other for other, t in centres if abs(t - centre) <= 15]
+                if len(crowd) > 2:
+                    report.error(
+                        f"{pid}: {len(crowd)} selected candidates within a 30s window around {cid}"
+                    )
+                    break
+    return report, packs_index

@@ -1,0 +1,37 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "qcard/v3/candidate-pool.schema.json",
+  "title": "candidate_pool",
+  "type": "object",
+  "required": ["schema_version", "candidates"],
+  "additionalProperties": true,
+  "properties": {
+    "schema_version": {"const": "3.0"},
+    "video_id": {"type": "string"},
+    "candidates": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["candidate_id", "segment_ids", "start_sec", "end_sec", "exact_source_text", "context_before", "context_after", "standalone_status", "context_dependency_flags", "claim_signature", "new_information", "scores", "verdict", "rejection_reasons"],
+        "properties": {
+          "candidate_id": {"type": "string", "pattern": "^c[0-9]{3,6}$"},
+          "segment_ids": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+          "start_sec": {"type": "number", "minimum": 0},
+          "end_sec": {"type": "number", "minimum": 0},
+          "exact_source_text": {"type": "string", "minLength": 1},
+          "context_before": {"type": "string"},
+          "context_after": {"type": "string"},
+          "standalone_status": {"enum": ["independent", "repairable", "reject"]},
+          "context_dependency_flags": {"type": "array", "items": {"type": "string"}},
+          "claim_signature": {"type": "string", "minLength": 1},
+          "new_information": {"type": "string", "minLength": 1},
+          "evidence_type": {"type": "string"},
+          "scores": {"type": "object"},
+          "verdict": {"enum": ["pass", "reject", "manual_review"]},
+          "rejection_reasons": {"type": "array", "items": {"type": "string"}}
+        }
+      }
+    }
+  }
+}
