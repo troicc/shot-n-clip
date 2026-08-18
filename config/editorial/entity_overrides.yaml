@@ -1,0 +1,73 @@
+# 人工实体覆盖 — 最高优先级。来源无法自动确认时在此锁定。
+# status: resolved 的实体直接采用 canonical_zh；validator 硬校验。
+overrides:
+  - entity_id: e001
+    source_form: "Bill Gurley"
+    canonical_zh: "Bill Gurley"
+    type: person
+    status: resolved
+    evidence: ["video title", "TED speaker page"]
+  - entity_id: e002
+    source_form: "Danny"
+    canonical_zh: "Danny"
+    type: person_or_nickname
+    status: resolved
+    evidence: ["repeated transcript occurrence", "video description: Danny Meyer"]
+  - entity_id: e003
+    source_form: "Uncle Richard"
+    canonical_zh: "Richard 叔叔"
+    type: person_or_nickname
+    status: resolved
+    evidence: ["repeated transcript occurrence"]
+    note: "字幕反复出现的具体人物；不得意译为伯乐/贵人等概念"
+  - entity_id: e004
+    source_form: "Jerry Seinfeld"
+    canonical_zh: "Jerry Seinfeld"
+    type: person
+    status: resolved
+    evidence: ["transcript: Jerry Seinfeld, the comedian"]
+  - entity_id: e005
+    source_form: "Magnus Carlsen"
+    canonical_zh: "Magnus Carlsen"
+    type: person
+    status: resolved
+    evidence: ["transcript: Magnus Carlsen, the world champion"]
+  - entity_id: e006
+    source_form: "Mark Cuban"
+    canonical_zh: "Mark Cuban"
+    type: person
+    status: resolved
+    evidence: ["transcript: Mark Cuban said something the other day"]
+  - entity_id: e007
+    source_form: "Union Square Cafe"
+    canonical_zh: "Union Square Cafe"
+    type: organization
+    status: resolved
+    evidence: ["transcript", "Zagat reference"]
+    note: 餐厅名不译
+  - entity_id: e008
+    source_form: "Shake Shack"
+    canonical_zh: "Shake Shack"
+    type: organization
+    status: resolved
+    evidence: ["transcript"]
+  - entity_id: e009
+    source_form: "Matthew"
+    canonical_zh: "Matthew"
+    type: person_or_nickname
+    status: resolved
+    evidence: ["transcript: Matthew McConaughey story", "user confirmation 2026-08-17"]
+    note: "字幕仅出现 Matthew；结合 alright×3 与 Austin 语境锁定为 Matthew McConaughey，需人工复核段落引用方式"
+  - entity_id: e010
+    source_form: "Setting the Table"
+    canonical_zh: "Setting the Table（《开餐之前》暂不官方译名，保留英文）"
+    type: work_title
+    status: needs_review
+    evidence: ["transcript: his book, Setting the Table"]
+    note: 无通行中文译名，展示时保留英文原名
+  - entity_id: e011
+    source_form: "TED"
+    canonical_zh: "TED"
+    type: organization
+    status: resolved
+    evidence: ["channel"]

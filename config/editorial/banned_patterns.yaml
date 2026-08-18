@@ -1,0 +1,46 @@
+# 模板腔与 AI 套话拦截 — editorial_lint.py 消费
+# severity: fail = 硬失败；warn = 警告（计入 ai_tone_risk）
+patterns:
+  # 平台套话
+  - {id: hype_rewatch,        severity: fail, regex: "值得所有人反复看"}
+  - {id: hype_gold_content,   severity: fail, regex: "含金量(太)?高"}
+  - {id: hype_resonate,       severity: fail, regex: "狠狠共鸣"}
+  - {id: hype_clear_mind,     severity: fail, regex: "看完(就)?通透"}
+  - {id: hype_save,           severity: fail, regex: "建议(先)?收藏"}
+  - {id: hype_incisive,       severity: fail, regex: "一针见血"}
+  - {id: hype_thoughtful,     severity: fail, regex: "发人深省"}
+  - {id: hype_subvert,        severity: fail, regex: "颠覆(你的)?认知"}
+  - {id: hype_must_watch,     severity: fail, regex: "(一定|必须|赶紧|千万)(要)?(看|转|赞)"}
+  - {id: fake_first_person,   severity: fail, regex: "(我亲测|我一直都|我这些年|我曾经也)(?![。])"}
+
+  # AI 模板句
+  - {id: tpl_true_x_is_y,     severity: fail, regex: "真正的?[^，。]{1,12}，(其实)?是"}
+  - {id: tpl_tells_us,        severity: fail, regex: "(这段话|这句话)(告诉|提醒)(了)?我们"}
+  - {id: tpl_you_must_know,   severity: fail, regex: "(你|大家)(一定要|必须)明白"}
+  - {id: tpl_not_but,         severity: warn, regex: "不是[^，。]{1,20}，(而|是)", limit_per_pack: 1}
+  - {id: tpl_essential_quals, severity: warn, regex: "底(层 )?逻辑"}
+  - {id: tpl_meta_aphorism,   severity: warn, regex: "(说到底|归根结底)[，，]"}
+  - {id: tpl_generic_praise,  severity: fail, regex: "(太有启发|很有启发|启发(性)?很大|受益匪浅|醍醐灌顶)"}
+
+  # 无依据绝对化
+  - {id: abs_everyone,        severity: warn, regex: "(所有人|每个人)(都|均)"}
+  - {id: abs_always,          severity: warn, regex: "(永远|从来(不)?|根本(不)?|绝不)"}
+  - {id: abs_must_all,        severity: warn, regex: "一定要"}
+
+  # 标点滥用制造金句感
+  - {id: punct_dash_run,      severity: warn, regex: "——[^——]{0,30}——[^——]{0,30}——"}
+  - {id: punct_colon_stack,   severity: warn, regex: "[：:][^：:]{0,20}[：:]"}
+
+# 结尾节奏重复：连续 N 句以相同虚词/结构结尾时告警
+ending_rhythm:
+  check_window: 3
+  identical_endings_warn: 2   # 连续 2 句结尾 4 字完全相同 → warn
+
+# 四字抽象词堆叠
+abstract_stack:
+  words: [认知, 思维, 格局, 赋能, 价值, 力量, 智慧, 勇气, 成长, 突破, 沉淀, 笃定]
+  max_in_sentence: 2
+
+# 句式重复（同 pack 内）
+sentence_shape:
+  max_judgment_ratio: 0.5     # 「A 是 B」判断句占比上限（warn）

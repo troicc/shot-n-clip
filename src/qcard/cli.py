@@ -244,23 +244,21 @@ def cmd_validate(args: argparse.Namespace) -> int:
 
 
 def _resolve_work_dir(work_dir: str) -> str:
+    """Accept absolute path, video-id, work/<id> (relative), or a full URL."""
     if os.path.isabs(work_dir) and os.path.exists(work_dir):
         return work_dir
     cand = work_dir if os.path.isabs(work_dir) else os.path.join(WORK_ROOT, work_dir)
     if not os.path.exists(cand):
-        # Allow passing a full URL as <work-dir> convenience.
         try:
             vid = extract_video_id(work_dir)
-            cand = os.path.join(WORK_ROOT, vid)
         except QCardError:
-            raise QCardError(
-                f"work dir not found: {work_dir}. Next step: run "
-                "`bin/qcard fetch '<url>'` first, or pass the video id / absolute path.")
+            vid = work_dir
+        cand = os.path.join(WORK_ROOT, vid)
         if not os.path.exists(cand):
             raise QCardError(
                 f"work dir not found: {work_dir}. Next step: run "
                 "`bin/qcard fetch '<url>'` first, or pass the video id / absolute path.")
-    return cand
+    return os.path.abspath(cand)
 
 
 # ---------------------------------------------------------------------------
@@ -376,6 +374,355 @@ def cmd_open(args: argparse.Namespace) -> int:
 
 
 # ---------------------------------------------------------------------------
+# V2 commands: source-map / migrate-v2 / validate-editorial / render-packs /
+#              report / approve / reject
+# ---------------------------------------------------------------------------
+
+
+def _source_map_path(work_dir: str) -> str:
+    return os.path.join(work_dir, "source_map.json")
+
+
+def _load_source_map(work_dir: str):
+    from .source_integrity import SourceMap
+    path = _source_map_path(work_dir)
+    if not os.path.exists(path):
+        raise QCardError(
+            f"{path} missing. Next step: run `bin/qcard source-map "
+            f"{work_dir}` first.")
+    with open(path, encoding="utf-8") as fh:
+        data = json.load(fh)
+    m = SourceMap(video_id=data["video_id"],
+                  source_language=data["source_language"],
+                  caption_kind=data["caption_kind"],
+                  segments=data["segments"],
+                  entities=data.get("entities", []),
+                  warnings=data.get("warnings", []))
+    return m
+
+
+def _glossary_path(work_dir: str) -> str:
+    return os.path.join(work_dir, "entity_glossary.json")
+
+
+def _load_entities(work_dir: str):
+    from .entity_glossary import Entity
+    path = _glossary_path(work_dir)
+    if not os.path.exists(path):
+        return []
+    with open(path, encoding="utf-8") as fh:
+        raw = json.load(fh)
+    return [Entity(entity_id=e["entity_id"], source_form=e["source_form"],
+                   canonical_zh=e.get("canonical_zh"), type=e["type"],
+                   do_not_guess=e.get("do_not_guess", True),
+                   evidence=e.get("evidence", []),
+                   status=e.get("status", "needs_review"),
+                   note=e.get("note", "")) for e in raw]
+
+
+def cmd_source_map(args: argparse.Namespace) -> int:
+    from .source_integrity import build_source_map
+    from .entity_glossary import build_glossary
+    work_dir = _resolve_work_dir(args.work_dir)
+    sm = build_source_map(os.path.join(work_dir, "transcript"))
+    meta = None
+    desc_path = os.path.join(work_dir, "transcript", "meta.json")
+    extra = {}
+    if os.path.exists(desc_path):
+        with open(desc_path, encoding="utf-8") as fh:
+            meta = json.load(fh)
+        extra = {"title+description":
+                 (meta.get("title", "") + "\n" + meta.get("description", ""))}
+    entities = build_glossary(sm, CONFIG_ROOT, extra)
+    # overrides carry authoritative locks; save resolved set with the map
+    sm.entities = [e.to_dict() for e in entities]
+    sm.save(_source_map_path(work_dir))
+    with open(_glossary_path(work_dir), "w", encoding="utf-8") as fh:
+        json.dump([e.to_dict() for e in entities], fh, ensure_ascii=False,
+                  indent=2)
+    unresolved = [e.source_form for e in entities if e.status != "resolved"]
+    print(json.dumps({
+        "source_map": os.path.abspath(_source_map_path(work_dir)),
+        "entity_glossary": os.path.abspath(_glossary_path(work_dir)),
+        "segments": len(sm.segments),
+        "caption_kind": sm.caption_kind,
+        "entities": len(entities),
+        "needs_review": unresolved,
+        "warnings": sm.warnings,
+    }, ensure_ascii=False, indent=2))
+    return 0
+
+
+def cmd_migrate_v2(args: argparse.Namespace) -> int:
+    from .migration_v2 import migrate
+    work_dir = _resolve_work_dir(args.work_dir)
+    if not os.path.exists(_source_map_path(work_dir)):
+        cmd_source_map(argparse.Namespace(work_dir=args.work_dir))
+    sm = _load_source_map(work_dir)
+    out = migrate(work_dir, sm)
+    print(f"migrated V1 selection → {os.path.abspath(out)}")
+    print("(draft only: review blocks seeded manual_review — old "
+          "translations are NOT considered reviewed)")
+    return 0
+
+
+def cmd_validate_editorial(args: argparse.Namespace) -> int:
+    from . import pack_validation as pv
+    from . import copy_validation as cv
+    work_dir = _resolve_work_dir(args.work_dir)
+    sm = _load_source_map(work_dir)
+    entities = _load_entities(work_dir)
+
+    angle_path = os.path.join(work_dir, "angle_packs.json")
+    total_errors: List[str] = []
+    total_warnings: List[str] = []
+    if os.path.exists(angle_path):
+        with open(angle_path, encoding="utf-8") as fh:
+            angle_packs = json.load(fh)
+        res = pv.validate_pack_set(angle_packs)
+        total_errors += res.errors
+        total_warnings += res.warnings
+
+    packs_root = os.path.join(work_dir, "packs")
+    pack_files: List[str] = []
+    if os.path.isdir(packs_root):
+        for name in sorted(os.listdir(packs_root)):
+            p = os.path.join(packs_root, name, "editorial_pack.json")
+            if os.path.exists(p):
+                pack_files.append(p)
+
+    ready_status_from_angle = {}
+    if os.path.exists(angle_path):
+        with open(angle_path, encoding="utf-8") as fh:
+            for p in json.load(fh).get("packs", []):
+                ready_status_from_angle[p["pack_id"]] = p["status"]
+
+    any_ready = False
+    for pf in pack_files:
+        with open(pf, encoding="utf-8") as fh:
+            pack = json.load(fh)
+        layout_fit = _load_layout_fit(work_dir, pack)
+        res = pv.validate_editorial_pack(pack, sm, entities, CONFIG_ROOT,
+                                         layout_fit)
+        tag = os.path.basename(os.path.dirname(pf))
+        for e in res.errors:
+            total_errors.append(f"[{tag}] {e}")
+        for w in res.warnings:
+            total_warnings.append(f"[{tag}] {w}")
+        # publish copy validation for ready packs
+        pid = pack["pack"]["pack_id"]
+        for platform in ("xhs", "wechat"):
+            cpath = os.path.join(work_dir, "packs", pid,
+                                 f"publish_{platform}.json")
+            if os.path.exists(cpath):
+                with open(cpath, encoding="utf-8") as fh:
+                    copy = json.load(fh)
+                errs, warns = cv.validate_copy(copy, platform, pack)
+                for e in errs:
+                    total_errors.append(f"[{pid}/{platform}] {e}")
+                for w in warns:
+                    total_warnings.append(f"[{pid}/{platform}] {w}")
+        status = ready_status_from_angle.get(pid, "candidate")
+        if status == "ready" and not res.errors:
+            any_ready = True
+
+    if args.strict and not any_ready and pack_files:
+        total_errors.append("strict: no pack reached ready status")
+
+    for w in total_warnings:
+        print(f"[WARN] {w}")
+    if total_errors:
+        for e in total_errors:
+            print(f"[ERROR] {e}")
+        print(f"\nvalidate-editorial: FAILED ({len(total_errors)} error(s), "
+              f"{len(total_warnings)} warning(s)).")
+        return 1
+    print(f"validate-editorial: OK ({len(pack_files)} pack(s) checked, "
+          f"{len(total_warnings)} warning(s))")
+    return 0
+
+
+def _load_layout_fit(work_dir: str, pack: dict):
+    pid = pack["pack"]["pack_id"]
+    path = os.path.join(work_dir, "packs", pid, "outputs", "layout_report.json")
+    if not os.path.exists(path):
+        return None
+    with open(path, encoding="utf-8") as fh:
+        report = json.load(fh).get("layout", {})
+    return {qid: info.get("fits", True) for qid, info in report.items()}
+
+
+def cmd_render_packs(args: argparse.Namespace) -> int:
+    from . import frames_packs
+    from . import render_packs
+    work_dir = _resolve_work_dir(args.work_dir)
+    sm = _load_source_map(work_dir)
+    entities = _load_entities(work_dir)
+
+    angle_path = os.path.join(work_dir, "angle_packs.json")
+    if not os.path.exists(angle_path):
+        raise QCardError("angle_packs.json missing — pack selection must "
+                         "happen before rendering.")
+    with open(angle_path, encoding="utf-8") as fh:
+        angle_packs = json.load(fh)
+
+    packs_root = os.path.join(work_dir, "packs")
+    video_path = os.path.join(work_dir, video_mod.VIDEO_FILENAME)
+    cfg = render_packs.load_style(CONFIG_ROOT, args.style)
+    rendered: List[str] = []
+    skipped: List[str] = []
+
+    for ap in angle_packs["packs"]:
+        if args.ready_only and ap["status"] != "ready":
+            skipped.append(f"{ap['pack_id']} ({ap['status']})")
+            continue
+        pid = ap["pack_id"]
+        pack_path = os.path.join(packs_root, pid, "editorial_pack.json")
+        if not os.path.exists(pack_path):
+            skipped.append(f"{pid} (no editorial_pack.json)")
+            continue
+        with open(pack_path, encoding="utf-8") as fh:
+            pack = json.load(fh)
+        chosen = frames_packs.ensure_pack_frames(video_path, pack, sm,
+                                                 work_dir, entities)
+        clips = frames_packs.export_review_clips(video_path, pack, sm,
+                                                 work_dir, entities)
+        result = render_packs.render_pack(work_dir, pack, cfg, chosen,
+                                          args.mode)
+        for name, path in result["produced"].items():
+            rendered.append(os.path.abspath(path))
+        if clips:
+            print(f"{pid}: exported {len(clips)} review clip(s) → "
+                  "review_queue.md will list them")
+
+    _write_review_queue(work_dir, angle_packs, sm)
+    print("\nRendered:")
+    for p in rendered:
+        print(f"  {p}")
+    if skipped:
+        print("Skipped: " + ", ".join(skipped))
+    return 0
+
+
+def _write_review_queue(work_dir: str, angle_packs: dict, sm) -> None:
+    from .context_builder import needs_audio_check
+    from .models_compat import evidence_for_quote
+    lines = ["# Review Queue — items needing human audio check", ""]
+    n = 0
+    for ap in angle_packs["packs"]:
+        pid = ap["pack_id"]
+        pack_path = os.path.join(work_dir, "packs", pid,
+                                 "editorial_pack.json")
+        if not os.path.exists(pack_path):
+            continue
+        with open(pack_path, encoding="utf-8") as fh:
+            pack = json.load(fh)
+        for q in pack["quotes"]:
+            ev = evidence_for_quote(sm, q["exact_source_text"])
+            if isinstance(ev, dict) and ev.get("error"):
+                lines.append(f"- {pid}/{q['quote_id']}: SOURCE NOT FOUND — "
+                             f"{ev['error']}")
+                n += 1
+                continue
+            if needs_audio_check(ev, sm.caption_kind == "auto"):
+                clip = os.path.join(work_dir, "packs", pid, "review_clips",
+                                    f"{q['quote_id']}.mp4")
+                clip_note = f" — clip: {clip}" if os.path.exists(clip) else ""
+                lines.append(
+                    f"- {pid}/{q['quote_id']} @ "
+                    f"{q['source_spans'][0]['start_sec']:.1f}s: "
+                    f"{'; '.join(ev.get('suspected_asr_issues') or ['low confidence'])}"
+                    f"{clip_note}")
+                n += 1
+    if n == 0:
+        lines.append("(empty — nothing flagged)")
+    path = os.path.join(work_dir, "review_queue.md")
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write("\n".join(lines) + "\n")
+    print(f"review_queue.md: {n} item(s)")
+
+
+def cmd_report(args: argparse.Namespace) -> int:
+    work_dir = _resolve_work_dir(args.work_dir)
+    angle_path = os.path.join(work_dir, "angle_packs.json")
+    if not os.path.exists(angle_path):
+        raise QCardError("angle_packs.json missing.")
+    with open(angle_path, encoding="utf-8") as fh:
+        angle_packs = json.load(fh)
+    packs_root = os.path.join(work_dir, "packs")
+    lines = [f"# Report — {work_dir}", ""]
+    counts = {"ready": 0, "rejected": 0, "manual_review": 0, "candidate": 0}
+    ready_outputs: List[str] = []
+    for ap in angle_packs["packs"]:
+        counts[ap["status"]] = counts.get(ap["status"], 0) + 1
+        pid = ap["pack_id"]
+        qr = os.path.join(packs_root, pid, "quality_report.json")
+        score_note = ""
+        if os.path.exists(qr):
+            with open(qr, encoding="utf-8") as fh:
+                q = json.load(fh)
+            score_note = " | " + " ".join(
+                f"{k}={v}" for k, v in q["scores"].items())
+        reason = f" — {ap['rejection_reason']}" if ap.get("rejection_reason") else ""
+        lines.append(f"- {pid}: {ap['status']}{reason}{score_note}")
+        if ap["status"] == "ready":
+            for name in ("01_zh.png", "02_en.png", "03_bilingual.png",
+                         "publish_xhs.md", "publish_wechat.md"):
+                p = os.path.join(packs_root, pid, "outputs", name)
+                if os.path.exists(p):
+                    ready_outputs.append(p)
+    rq = os.path.join(work_dir, "review_queue.md")
+    n_review = sum(1 for ln in open(rq, encoding="utf-8")
+                   if ln.startswith("- ")) if os.path.exists(rq) else 0
+    lines += ["", f"status: {counts}", f"manual review items: {n_review}",
+              "", "ready outputs:"]
+    lines += [f"  {p}" for p in ready_outputs]
+    print("\n".join(lines))
+    report_path = os.path.join(work_dir, "report.md")
+    with open(report_path, "w", encoding="utf-8") as fh:
+        fh.write("\n".join(lines) + "\n")
+    print(f"\nwritten: {os.path.abspath(report_path)}")
+    return 0
+
+
+def cmd_approve(args: argparse.Namespace) -> int:
+    from . import feedback_memory as fm
+    work_dir = _resolve_work_dir(args.work_dir)
+    pack_path = os.path.join(work_dir, "packs", args.pack,
+                             "editorial_pack.json")
+    if not os.path.exists(pack_path):
+        raise QCardError(f"no editorial_pack.json for {args.pack}")
+    with open(pack_path, encoding="utf-8") as fh:
+        pack = json.load(fh)
+    copy = None
+    copy_path = os.path.join(work_dir, "packs", args.pack, "publish_xhs.json")
+    if os.path.exists(copy_path):
+        with open(copy_path, encoding="utf-8") as fh:
+            copy = json.load(fh)
+    path = fm.approve(CONFIG_ROOT, pack, copy)
+    print(f"approved {args.pack} → appended to {os.path.abspath(path)}")
+    return 0
+
+
+def cmd_reject(args: argparse.Namespace) -> int:
+    from . import feedback_memory as fm
+    work_dir = _resolve_work_dir(args.work_dir)
+    pack_path = os.path.join(work_dir, "packs", args.pack,
+                             "editorial_pack.json")
+    if not os.path.exists(pack_path):
+        raise QCardError(f"no editorial_pack.json for {args.pack}")
+    with open(pack_path, encoding="utf-8") as fh:
+        pack = json.load(fh)
+    try:
+        path = fm.reject(CONFIG_ROOT, pack, args.reason, args.note or "")
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    print(f"rejected {args.pack} ({args.reason}) → {os.path.abspath(path)}")
+    return 0
+
+
+# ---------------------------------------------------------------------------
 # parser
 # ---------------------------------------------------------------------------
 
@@ -408,6 +755,39 @@ def main(argv: Optional[List[str]] = None) -> int:
     p_open = sub.add_parser("open", help="open the outputs folder")
     p_open.add_argument("work_dir")
 
+    p_sm = sub.add_parser("source-map", help="build source_map.json + entity glossary (V2)")
+    p_sm.add_argument("work_dir")
+
+    p_mv = sub.add_parser("migrate-v2", help="migrate V1 selection.json to a V2 draft pack")
+    p_mv.add_argument("work_dir")
+
+    p_ve = sub.add_parser("validate-editorial", help="strict V2 validation of packs + copy")
+    p_ve.add_argument("work_dir")
+    p_ve.add_argument("--strict", action="store_true",
+                      help="also require at least one ready pack")
+
+    p_rp = sub.add_parser("render-packs", help="render ready packs (no re-fetch, no re-download)")
+    p_rp.add_argument("work_dir")
+    p_rp.add_argument("--ready-only", action="store_true", default=True)
+    p_rp.add_argument("--mode", choices=["pair", "inline", "all"], default="all")
+    p_rp.add_argument("--style", default="classic")
+
+    p_rep = sub.add_parser("report", help="overview of pack statuses and outputs")
+    p_rep.add_argument("work_dir")
+
+    p_ap = sub.add_parser("approve", help="record approved pack into style memory")
+    p_ap.add_argument("work_dir")
+    p_ap.add_argument("--pack", required=True)
+
+    p_rj = sub.add_parser("reject", help="record rejected pack with reason tag")
+    p_rj.add_argument("work_dir")
+    p_rj.add_argument("--pack", required=True)
+    p_rj.add_argument("--reason", required=True,
+                      choices=["literal_translation", "ai_cliche", "overstated",
+                               "entity_error", "unnatural_wording", "too_long",
+                               "weak_angle", "generic_copy"])
+    p_rj.add_argument("--note", default="")
+
     args = parser.parse_args(argv)
     handlers = {
         "preflight": cmd_preflight,
@@ -416,6 +796,13 @@ def main(argv: Optional[List[str]] = None) -> int:
         "build": cmd_build,
         "rerender": cmd_rerender,
         "open": cmd_open,
+        "source-map": cmd_source_map,
+        "migrate-v2": cmd_migrate_v2,
+        "validate-editorial": cmd_validate_editorial,
+        "render-packs": cmd_render_packs,
+        "report": cmd_report,
+        "approve": cmd_approve,
+        "reject": cmd_reject,
     }
     try:
         return handlers[args.command](args)
@@ -428,6 +815,10 @@ def main(argv: Optional[List[str]] = None) -> int:
     except RuntimeError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
+    except OverflowError as exc:
+        # render_packs raises builtin OverflowError subclass alias
+        print(f"overflow: {exc}", file=sys.stderr)
+        return 3
 
 
 if __name__ == "__main__":

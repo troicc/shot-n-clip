@@ -1,0 +1,47 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "qcard/v2/source-map.schema.json",
+  "title": "source_map",
+  "type": "object",
+  "required": ["schema_version", "video_id", "source_language", "caption_kind", "segments", "entities", "warnings"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {"const": "2.0"},
+    "video_id": {"type": "string", "minLength": 1},
+    "source_language": {"type": "string", "minLength": 2},
+    "caption_kind": {"enum": ["manual", "auto", "unknown"]},
+    "segments": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["segment_id", "start_sec", "end_sec", "raw_text", "normalized_text"],
+        "additionalProperties": false,
+        "properties": {
+          "segment_id": {"type": "string", "pattern": "^s[0-9]{6}$"},
+          "start_sec": {"type": "number", "minimum": 0},
+          "end_sec": {"type": "number", "minimum": 0},
+          "raw_text": {"type": "string", "minLength": 1},
+          "normalized_text": {"type": "string"}
+        }
+      }
+    },
+    "entities": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["entity_id", "source_form", "type", "do_not_guess", "evidence", "status"],
+        "additionalProperties": false,
+        "properties": {
+          "entity_id": {"type": "string", "pattern": "^e[0-9]{3}$"},
+          "source_form": {"type": "string", "minLength": 1},
+          "canonical_zh": {"type": ["string", "null"]},
+          "type": {"type": "string"},
+          "do_not_guess": {"type": "boolean"},
+          "evidence": {"type": "array", "items": {"type": "string"}},
+          "status": {"enum": ["resolved", "needs_review"]}
+        }
+      }
+    },
+    "warnings": {"type": "array", "items": {"type": "string"}}
+  }
+}

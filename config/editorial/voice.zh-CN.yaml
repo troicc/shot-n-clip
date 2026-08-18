@@ -1,0 +1,40 @@
+# 中文风格档案 — 所有 zh-editor 候选与 platform-copy-editor 必须遵守
+voice:
+  register: 理性、克制、自然口语
+  density: 信息密度高，但不端着；像中文编辑写的，不像逐字字幕
+  sentence_shape: 主谓宾短句优先；避免英文语序镜像（长定语从句前置）
+  no_forced_aphorism: 不故作金句，不强行升华；原文平实就平实
+  keep_hedging: 保留原文的犹豫、幽默和限定（maybe/often/can → 也许/常常/可以）
+  shortening: 可以短，但不能为了短而改变命题
+  person: 不使用"你一定要""你必须"等命令式二人称（原文祈使句除外）
+
+# 语气词映射参考（zh-editor 用，非穷举）
+modality_map:
+  maybe: 也许/可能
+  perhaps: 或许
+  often: 常常
+  usually: 通常
+  tend to: 往往
+  can: 可以/能
+  might: 可能
+  i think: 我觉得/我认为
+  i fear: 我担心
+  i have a hunch: 我有种直觉/我猜
+
+# 翻译腔黑名单（出现即 revise）
+translationese:
+  - 自带机制
+  - 留下(很大)?的脚印        # "leave big footprints" 直译
+  - 一步一个脚印也(不)?算      # 误用
+  - 输入.?输出                # input/output 机翻（语境为学习机制时）
+  - 让我们
+  - 事实上，?[，。]            # 开头 as a matter of fact 腔
+  - 值得注意的是
+  - 本质上(是)?(说)?[，。]     # essentially 开头腔
+  - (一个)?关于.{0,8}的故事    # a story about 开头腔（叙述类除外）
+
+# 标点倾向
+punctuation:
+  max_dash_per_sentence: 1
+  prefer_chinese_punct: true
+  nested_quotes: 避免「引号中'再引号'」嵌套；改写结构

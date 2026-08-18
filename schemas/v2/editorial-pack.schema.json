@@ -1,0 +1,106 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "qcard/v2/editorial-pack.schema.json",
+  "title": "editorial_pack",
+  "type": "object",
+  "required": ["schema_version", "pack", "quotes"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {"const": "2.0"},
+    "pack": {
+      "type": "object",
+      "required": ["pack_id", "core_claim", "reader_value"],
+      "properties": {
+        "pack_id": {"type": "string", "pattern": "^pack-[0-9]{2}$"},
+        "slug": {"type": "string"},
+        "core_claim": {"type": "string", "minLength": 8},
+        "reader_value": {"type": "string", "minLength": 8}
+      }
+    },
+    "quotes": {
+      "type": "array", "minItems": 4, "maxItems": 8,
+      "items": {
+        "type": "object",
+        "required": ["quote_id", "order", "role", "source_spans", "exact_source_text", "context_before", "context_after", "display_en", "display_en_edits", "semantic_brief", "faithful_zh", "zh_candidates", "recommended_zh", "compact_zh", "entity_ids", "frame_time_sec", "review"],
+        "additionalProperties": false,
+        "properties": {
+          "quote_id": {"type": "string", "pattern": "^q[0-9]{2}$"},
+          "order": {"type": "integer", "minimum": 1},
+          "role": {"enum": ["hook", "problem", "mechanism", "evidence", "method", "close"]},
+          "source_spans": {
+            "type": "array", "minItems": 1,
+            "items": {
+              "type": "object",
+              "required": ["segment_id", "start_sec", "end_sec"],
+              "properties": {
+                "segment_id": {"type": "string", "pattern": "^s[0-9]{6}$"},
+                "start_sec": {"type": "number", "minimum": 0},
+                "end_sec": {"type": "number", "minimum": 0}
+              }
+            }
+          },
+          "exact_source_text": {"type": "string", "minLength": 1},
+          "context_before": {"type": "string"},
+          "context_after": {"type": "string"},
+          "display_en": {"type": "string", "minLength": 1},
+          "display_en_edits": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["operation", "from", "to"],
+              "properties": {
+                "operation": {"enum": ["capitalization", "punctuation", "remove_filler", "remove_immediate_false_start", "join_adjacent_caption_fragments"]},
+                "from": {"type": "string"},
+                "to": {"type": "string"}
+              }
+            }
+          },
+          "semantic_brief": {
+            "type": "object",
+            "required": ["claim", "rhetorical_function", "tone", "modality", "resolved_references"],
+            "properties": {
+              "claim": {"type": "string", "minLength": 4},
+              "rhetorical_function": {"enum": ["hook", "problem", "mechanism", "example", "method", "close"]},
+              "tone": {"type": "string"},
+              "modality": {"enum": ["absolute", "tendential", "possible", "conditional"]},
+              "resolved_references": {"type": "object"},
+              "key_terms": {"type": "array", "items": {"type": "string"}}
+            }
+          },
+          "faithful_zh": {"type": "string", "minLength": 2},
+          "zh_candidates": {
+            "type": "array", "minItems": 3, "maxItems": 3,
+            "items": {
+              "type": "object",
+              "required": ["id", "style", "text"],
+              "properties": {
+                "id": {"enum": ["a", "b", "c"]},
+                "style": {"enum": ["faithful-natural", "spoken-compact", "memorable-restrained"]},
+                "text": {"type": "string", "minLength": 2}
+              }
+            }
+          },
+          "recommended_zh": {"type": "string", "minLength": 2},
+          "compact_zh": {"type": "string", "minLength": 2},
+          "editor_choice_reason": {"type": "string"},
+          "entity_ids": {"type": "array", "items": {"type": "string"}},
+          "frame_time_sec": {"type": ["number", "null"]},
+          "review": {
+            "type": "object",
+            "required": ["fidelity_score", "naturalness_score", "source_confidence", "ai_tone_risk", "entity_integrity", "modality_integrity", "verdict", "issues"],
+            "properties": {
+              "fidelity_score": {"type": "number", "minimum": 0, "maximum": 10},
+              "naturalness_score": {"type": "number", "minimum": 0, "maximum": 10},
+              "source_confidence": {"type": "number", "minimum": 0, "maximum": 10},
+              "ai_tone_risk": {"type": "number", "minimum": 0, "maximum": 10},
+              "entity_integrity": {"enum": ["pass", "fail"]},
+              "modality_integrity": {"enum": ["pass", "fail"]},
+              "verdict": {"enum": ["pass", "revise", "manual_review"]},
+              "issues": {"type": "array", "items": {"type": "string"}}
+            }
+          }
+        }
+      }
+    }
+  }
+}
