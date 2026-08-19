@@ -17,13 +17,9 @@ on:
 permissions:
   contents: write
 
-concurrency:
-  group: apply-v4-selection-typography
-  cancel-in-progress: false
-
 jobs:
   apply:
-    if: github.actor != 'github-actions[bot]'
+    if: github.event_name == 'pull_request' && github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     timeout-minutes: 25
 
