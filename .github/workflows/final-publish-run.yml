@@ -32,25 +32,59 @@ jobs:
         run: |
           python -m pip install --upgrade pip setuptools wheel
           python -m pip install -e '.[dev]'
-      - name: Fetch captions and source video
+      - name: Fetch exact captions and source video
         shell: bash
         run: |
           set -euo pipefail
-          bin/qcard fetch 'https://youtu.be/z-WfDn_0AWE'
-          bin/qcard source-map work/z-WfDn_0AWE
+          URL='https://youtu.be/z-WfDn_0AWE'
+          WORK='work/z-WfDn_0AWE'
+          mkdir -p "$WORK/transcript"
+
+          python -m yt_dlp \
+            --no-playlist \
+            --write-subs --write-auto-subs \
+            --sub-langs 'en.*,en' \
+            --sub-format vtt \
+            --skip-download \
+            -o "$WORK/transcript/source.%(ext)s" \
+            "$URL"
+
+          test -n "$(find "$WORK/transcript" -maxdepth 1 -type f -name '*.vtt' -print -quit)"
+
+          python -m yt_dlp \
+            --no-playlist \
+            -f 'bv*[height<=720]+ba/b[height<=720]/b' \
+            --merge-output-format mp4 \
+            --remux-video mp4 \
+            -o "$WORK/source_video.%(ext)s" \
+            "$URL" \
+          || python -m yt_dlp \
+            --no-playlist \
+            --extractor-args 'youtube:player_client=android_vr' \
+            -f 'b[height<=720]/b' \
+            --remux-video mp4 \
+            -o "$WORK/source_video.%(ext)s" \
+            "$URL"
+
           python - <<'PY'
-          from qcard.video import download_video
-          path = download_video(
-              'work/z-WfDn_0AWE',
-              'https://youtu.be/z-WfDn_0AWE',
-              venv_dir=None,
-              max_height=720,
-          )
-          print(path)
+          from pathlib import Path
+          work = Path('work/z-WfDn_0AWE')
+          target = work / 'source_video.mp4'
+          if not target.exists():
+              files = [p for p in work.glob('source_video.*') if p.is_file()]
+              if not files:
+                  raise SystemExit('source video missing')
+              source = files[0]
+              if source.suffix.lower() == '.mp4':
+                  source.replace(target)
+              else:
+                  raise SystemExit(f'video is not mp4 after remux: {source}')
+          print(target, target.stat().st_size)
+          for path in sorted((work / 'transcript').glob('*.vtt')):
+              print(path, path.stat().st_size)
           PY
-          test -s work/z-WfDn_0AWE/source_video.mp4
-          test -s work/z-WfDn_0AWE/source_map.json
-          test -s work/z-WfDn_0AWE/transcript/transcript-raw.json
+
+          test -s "$WORK/source_video.mp4"
       - name: Upload source bundle
         uses: actions/upload-artifact@v4
         with:
