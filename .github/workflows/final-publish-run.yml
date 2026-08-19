@@ -53,24 +53,18 @@ jobs:
           python - <<'PY'
           import json
           from pathlib import Path
-          from PIL import Image
-
           out = Path('work/ESkB4_8YClI/public_source')
           meta = json.loads((out / 'oembed.json').read_text(encoding='utf-8'))
           print(json.dumps(meta, ensure_ascii=False, indent=2))
-          for path in sorted((out / 'thumbnails').glob('*.jpg')):
-              try:
-                  with Image.open(path) as im:
-                      print(path, im.size, path.stat().st_size)
-              except Exception as exc:
-                  print('bad image', path, exc)
-          with Image.open(out / 'charles-duhigg-ted-stage.jpg') as im:
-              print(out / 'charles-duhigg-ted-stage.jpg', im.size, (out / 'charles-duhigg-ted-stage.jpg').stat().st_size)
+          for path in sorted(out.rglob('*')):
+              if path.is_file():
+                  print(path, path.stat().st_size)
           PY
 
           test -s "$OUT/oembed.json"
           test -s "$OUT/ted-transcript.html"
           test -s "$OUT/wave-transcript.html"
+          test -s "$OUT/charles-duhigg-ted-stage.jpg"
           test -n "$(find "$OUT/thumbnails" -type f -name '*.jpg' -print -quit)"
 
       - name: Upload source bundle
