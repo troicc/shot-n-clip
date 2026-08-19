@@ -17,84 +17,45 @@ jobs:
   prepare:
     if: github.event_name == 'push' || github.head_ref == 'agent/final-publish-artifact-run'
     runs-on: ubuntu-22.04
-    timeout-minutes: 35
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-          cache: pip
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update -qq
-          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ffmpeg fonts-wqy-zenhei
-      - name: Install project
-        run: |
-          python -m pip install --upgrade pip setuptools wheel
-          python -m pip install -e '.[dev]'
-      - name: Fetch exact captions and source video
+      - name: Fetch public TED source material
         shell: bash
         run: |
           set -euo pipefail
-          URL='https://youtu.be/z-WfDn_0AWE'
-          WORK='work/z-WfDn_0AWE'
-          mkdir -p "$WORK/transcript"
-
-          python -m yt_dlp \
-            --no-playlist \
-            --write-subs --write-auto-subs \
-            --sub-langs 'en.*,en' \
-            --sub-format vtt \
-            --skip-download \
-            -o "$WORK/transcript/source.%(ext)s" \
-            "$URL"
-
-          test -n "$(find "$WORK/transcript" -maxdepth 1 -type f -name '*.vtt' -print -quit)"
-
-          python -m yt_dlp \
-            --no-playlist \
-            -f 'bv*[height<=720]+ba/b[height<=720]/b' \
-            --merge-output-format mp4 \
-            --remux-video mp4 \
-            -o "$WORK/source_video.%(ext)s" \
-            "$URL" \
-          || python -m yt_dlp \
-            --no-playlist \
-            --extractor-args 'youtube:player_client=android_vr' \
-            -f 'b[height<=720]/b' \
-            --remux-video mp4 \
-            -o "$WORK/source_video.%(ext)s" \
-            "$URL"
-
+          mkdir -p work/z-WfDn_0AWE/public_source
+          UA='Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/150 Safari/537.36'
+          curl --fail --location --retry 4 --retry-all-errors --user-agent "$UA" \
+            'https://www.ted.com/talks/bill_gurley_how_to_build_a_career_you_actually_love' \
+            -o work/z-WfDn_0AWE/public_source/ted-page.html
+          curl --fail --location --retry 4 --retry-all-errors --user-agent "$UA" \
+            'https://embed.ted.com/talks/bill_gurley_how_to_build_a_career_you_actually_love' \
+            -o work/z-WfDn_0AWE/public_source/ted-embed.html || true
+          curl --fail --location --retry 4 --retry-all-errors --user-agent "$UA" \
+            'https://pi.tedcdn.com/r/talkstar-assets.s3.amazonaws.com/production/talks/talk_180789/723fcb38-8e0b-4c51-8bd9-bb6173158f31/BillGurley_2026-embed.jpg?quality=95&w=1920' \
+            -o work/z-WfDn_0AWE/public_source/BillGurley_2026-embed.jpg
+          curl --fail --location --retry 4 --retry-all-errors --user-agent "$UA" \
+            'https://tryshadowing.com/vi/shadowing/how-to-build-a-career-you-love-bill-gurley-ted-z-WfDn_0AWE' \
+            -o work/z-WfDn_0AWE/public_source/tryshadowing.html || true
+          curl --fail --location --retry 4 --retry-all-errors --user-agent "$UA" \
+            'https://podscripts.co/podcasts/ted-talks-daily/how-to-build-a-career-you-actually-love-bill-gurley' \
+            -o work/z-WfDn_0AWE/public_source/podscripts.html || true
           python - <<'PY'
           from pathlib import Path
-          work = Path('work/z-WfDn_0AWE')
-          target = work / 'source_video.mp4'
-          if not target.exists():
-              files = [p for p in work.glob('source_video.*') if p.is_file()]
-              if not files:
-                  raise SystemExit('source video missing')
-              source = files[0]
-              if source.suffix.lower() == '.mp4':
-                  source.replace(target)
-              else:
-                  raise SystemExit(f'video is not mp4 after remux: {source}')
-          print(target, target.stat().st_size)
-          for path in sorted((work / 'transcript').glob('*.vtt')):
+          root = Path('work/z-WfDn_0AWE/public_source')
+          for path in sorted(root.iterdir()):
               print(path, path.stat().st_size)
+          assert (root / 'ted-page.html').stat().st_size > 1000
+          assert (root / 'BillGurley_2026-embed.jpg').stat().st_size > 10000
           PY
-
-          test -s "$WORK/source_video.mp4"
-      - name: Upload source bundle
+      - name: Upload public source bundle
         uses: actions/upload-artifact@v4
         with:
           name: shot-n-clip-final-publish-inputs
-          include-hidden-files: true
           compression-level: 3
           retention-days: 2
           path: |
             .
             !.git/**
-            !.venv/**
             !**/__pycache__/**
-            !.cache/**
