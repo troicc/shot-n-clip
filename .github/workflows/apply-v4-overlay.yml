@@ -20,7 +20,7 @@ permissions:
 jobs:
   apply:
     if: github.event_name == 'pull_request' && github.actor != 'github-actions[bot]'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     timeout-minutes: 25
 
     steps:
@@ -61,6 +61,17 @@ jobs:
           tar -tzf /tmp/v4-overlay.tar.gz > /tmp/v4-overlay-files.txt
           tar -xzf /tmp/v4-overlay.tar.gz -C .
           chmod +x bin/qcard-promote bin/qcard-render-v4
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('.github/workflows/ci.yml')
+          text = path.read_text(encoding='utf-8')
+          text = text.replace('runs-on: ubuntu-latest', 'runs-on: ubuntu-22.04')
+          text = text.replace(
+              'sudo apt-get update\n          sudo apt-get install -y ffmpeg fonts-noto-cjk',
+              'sudo apt-get update -qq\n          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends fonts-noto-cjk\n          command -v ffmpeg',
+          )
+          path.write_text(text, encoding='utf-8')
+          PY
           test -f src/qcard/render_editorial.py
           test -f src/qcard/render_v4_cli.py
           test -f src/qcard/editorial_quality_v3/density.py
@@ -71,8 +82,9 @@ jobs:
 
       - name: Install system dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y ffmpeg fonts-noto-cjk
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends fonts-noto-cjk
+          command -v ffmpeg
 
       - name: Set up Python
         uses: actions/setup-python@v5
