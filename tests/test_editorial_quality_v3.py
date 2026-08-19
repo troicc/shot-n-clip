@@ -104,6 +104,8 @@ def test_translation_audit_requires_empty_ledger_and_natural_checks():
                 "role": "hook",
                 "exact_source_text": "Those who use LLMs to learn faster than ever, and those who use LLMs to skip learning altogether.",
                 "recommended_zh": "有人用大模型把学习提速，也有人拿它直接跳过学习。",
+                "compact_zh": "有人用大模型加快学习，也有人用它跳过学习。",
+                "display_en": "Those who use LLMs to learn faster than ever, and those who use LLMs to skip learning altogether.",
                 "review": {"verdict": "pass", "issues": []},
             }
         ]

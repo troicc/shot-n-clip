@@ -6,6 +6,10 @@ from typing import Any, Dict, Mapping
 
 from .common import (SCHEMA_VERSION, Report, _LEDGER_KEYS, _NATURALNESS_KEYS,
                      _nonempty, _norm, awkward_zh_flags)
+from .density import (MAX_COMPACT_ZH_VISUAL_UNITS, MAX_ZH_VISUAL_UNITS,
+                      WARN_ZH_VISUAL_UNITS, english_word_count,
+                      sentence_count, zh_visual_units)
+
 
 def _pack_quote_index(pack: Mapping[str, Any]) -> Dict[str, dict]:
     quotes = pack.get("quotes")
@@ -50,7 +54,9 @@ def validate_translation_audit(data: Any, editorial_pack: Any) -> Report:
         seen.add(qid)
         quote = pack_quotes[qid]
         source = str(quote.get("exact_source_text", ""))
+        display_en = str(quote.get("display_en", source))
         zh = str(quote.get("recommended_zh", ""))
+        compact_zh = str(quote.get("compact_zh", ""))
 
         units = audit.get("source_claim_units")
         if not isinstance(units, list) or not units:
@@ -100,11 +106,47 @@ def validate_translation_audit(data: Any, editorial_pack: Any) -> Report:
 
         for flag in awkward_zh_flags(source, zh):
             report.error(f"{qid}: known translation regression {flag}")
+
         hanzi = len(re.findall(r"[\u3400-\u9fff]", zh))
         if hanzi < 6:
             report.error(f"{qid}: recommended_zh is too fragmentary ({hanzi} Han characters)")
-        elif hanzi > 42:
-            report.warn(f"{qid}: recommended_zh is long ({hanzi} Han characters); verify layout")
+
+        visual_units = zh_visual_units(zh)
+        if visual_units > MAX_ZH_VISUAL_UNITS:
+            report.error(
+                f"{qid}: recommended_zh visual load {visual_units:.1f} exceeds "
+                f"bilingual limit {MAX_ZH_VISUAL_UNITS:.0f}; split/replace the quote"
+            )
+        elif visual_units > WARN_ZH_VISUAL_UNITS:
+            report.warn(
+                f"{qid}: recommended_zh visual load {visual_units:.1f} is near the limit; "
+                "prefer a tighter native phrasing"
+            )
+        numeric_facts = re.findall(r"\d+(?:\.\d+)?%?", zh)
+        if len(numeric_facts) >= 2 and visual_units > 28:
+            report.error(
+                f"{qid}: recommended_zh visual load {visual_units:.1f} contains "
+                f"{len(numeric_facts)} numeric facts; split/replace the quote"
+            )
+        if sentence_count(zh) > 2:
+            report.error(f"{qid}: recommended_zh is a paragraph, not one quote unit")
+
+        if not _nonempty(compact_zh):
+            report.error(f"{qid}.compact_zh must be non-empty")
+        elif zh_visual_units(compact_zh) > MAX_COMPACT_ZH_VISUAL_UNITS:
+            report.error(
+                f"{qid}: compact_zh is still too dense "
+                f"({zh_visual_units(compact_zh):.1f} visual units > "
+                f"{MAX_COMPACT_ZH_VISUAL_UNITS:.0f})"
+            )
+
+        if english_word_count(display_en) > 28:
+            report.error(
+                f"{qid}: display_en has {english_word_count(display_en)} words; "
+                "choose a smaller contiguous quote unit for bilingual output"
+            )
+        if sentence_count(display_en) > 2:
+            report.error(f"{qid}: display_en contains more than two sentences")
 
     missing = sorted(set(pack_quotes) - seen)
     if missing:

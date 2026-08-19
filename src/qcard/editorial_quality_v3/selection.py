@@ -1,9 +1,12 @@
 """Independent pack-selection validation."""
 from __future__ import annotations
 
+from collections import Counter
 from typing import Any, Dict, List, Mapping, Tuple
 
 from .common import DIRECT_SUPPORT, SCHEMA_VERSION, Report, _nonempty, similarity
+from .density import (locality_flags, matched_anchors, valid_anchor_term)
+
 
 def validate_selection_audit(
     data: Any, candidate_index: Mapping[str, dict]
@@ -34,18 +37,50 @@ def validate_selection_audit(
         status = pack.get("status")
         if status not in {"ready", "rejected", "manual_review", "candidate"}:
             report.error(f"{pid}.status invalid: {status!r}")
-        if not _nonempty(pack.get("core_claim")):
+        core_claim = pack.get("core_claim")
+        if not _nonempty(core_claim):
             report.error(f"{pid}.core_claim must be non-empty")
+            core_claim = ""
+        focus_question = pack.get("focus_question")
+        if status == "ready" and not _nonempty(focus_question):
+            report.error(f"{pid}.focus_question must be non-empty for a ready pack")
+            focus_question = ""
+        reader_value = pack.get("reader_value")
+        if status == "ready" and not _nonempty(reader_value):
+            report.error(f"{pid}.reader_value must be non-empty for a ready pack")
+
+        anchor_terms = pack.get("anchor_terms")
+        if not isinstance(anchor_terms, list):
+            report.error(f"{pid}.anchor_terms must be an array")
+            anchor_terms = []
+        clean_anchors = [str(term).strip() for term in anchor_terms if _nonempty(term)]
+        if len(clean_anchors) != len(anchor_terms):
+            report.error(f"{pid}.anchor_terms must contain only non-empty strings")
+        invalid_anchors = [term for term in clean_anchors if not valid_anchor_term(term)]
+        if invalid_anchors:
+            report.error(f"{pid}.anchor_terms contains generic/invalid terms: {invalid_anchors}")
+        if status == "ready" and not 1 <= len(clean_anchors) <= 3:
+            report.error(f"{pid}: ready pack needs 1-3 concrete anchor_terms")
+        if clean_anchors and not matched_anchors(
+            clean_anchors, str(core_claim), str(focus_question)
+        ):
+            report.error(
+                f"{pid}: neither core_claim nor focus_question expresses an anchor_term"
+            )
+
         selected = pack.get("selected")
         if not isinstance(selected, list):
             report.error(f"{pid}.selected must be an array")
             continue
-        if status == "ready" and not 5 <= len(selected) <= 6:
-            report.error(f"{pid}: ready pack needs 5-6 selected quotes, found {len(selected)}")
+        # Four strong lines beat six weak ones.  Five is the default bilingual
+        # maximum borrowed from native-subtitle collage practice.
+        if status == "ready" and not 4 <= len(selected) <= 5:
+            report.error(f"{pid}: ready pack needs 4-5 selected quotes, found {len(selected)}")
 
         roles: List[str] = []
         incremental: List[str] = []
         selected_candidates: List[dict] = []
+        anchor_coverage: Counter[str] = Counter()
         for idx, item in enumerate(selected):
             tag = f"{pid}.selected[{idx}]"
             if not isinstance(item, dict):
@@ -79,6 +114,22 @@ def validate_selection_audit(
                 report.error(f"{tag}.incremental_value must be non-empty")
             else:
                 incremental.append(str(value))
+
+            candidate_topics = candidate.get("topic_terms")
+            if not isinstance(candidate_topics, list):
+                candidate_topics = []
+            matched = matched_anchors(
+                clean_anchors,
+                str(candidate.get("exact_source_text", "")),
+                str(candidate.get("claim_signature", "")),
+                " ".join(str(term) for term in candidate_topics),
+            )
+            if status == "ready" and clean_anchors and not matched:
+                report.error(
+                    f"{tag}: candidate {cid} matches none of pack anchor_terms {clean_anchors}"
+                )
+            for term in matched:
+                anchor_coverage[term] += 1
 
         if status == "ready" and selected:
             if roles and roles[0] != "hook":
@@ -114,17 +165,18 @@ def validate_selection_audit(
                             f"{pid}: incremental_value entries repeat the same contribution ({sim:.0%})"
                         )
 
-            # No more than two quote centres inside any rolling 30-second window.
-            centres = []
-            for candidate in selected_candidates:
-                start, end = candidate.get("start_sec"), candidate.get("end_sec")
-                if isinstance(start, (int, float)) and isinstance(end, (int, float)):
-                    centres.append((str(candidate.get("candidate_id")), (float(start) + float(end)) / 2))
-            for cid, centre in centres:
-                crowd = [other for other, t in centres if abs(t - centre) <= 15]
-                if len(crowd) > 2:
+            # Native-subtitle collages work because the lines form one nearby,
+            # chronological argument.  The former dispersion rule pushed agents
+            # to assemble survey, school, career and AI fragments into one card.
+            for flag in locality_flags(selected_candidates):
+                report.error(f"{pid}: source locality failure {flag}")
+
+            if clean_anchors:
+                dominant = max(anchor_coverage.values(), default=0)
+                minimum = max(3, len(selected_candidates) - 1)
+                if dominant < minimum:
                     report.error(
-                        f"{pid}: {len(crowd)} selected candidates within a 30s window around {cid}"
+                        f"{pid}: no anchor_term connects enough lines "
+                        f"(best coverage {dominant}/{len(selected_candidates)}, need {minimum})"
                     )
-                    break
     return report, packs_index

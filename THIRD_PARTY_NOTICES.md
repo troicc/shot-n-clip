@@ -2,18 +2,34 @@
 
 ## baoyu-youtube-transcript
 
-- **来源 (Source):** <https://github.com/JimLiu/baoyu-skills>，子目录 `skills/baoyu-youtube-transcript/`
-- **用途 (Use):** 仅复制该单个 Skill 完整目录到 `.claude/skills/baoyu-youtube-transcript/`，用于抓取 YouTube 视频元数据与字幕（`meta.json`、`transcript-raw.json`、`transcript-sentences.json`、`imgs/cover.jpg`）。未安装整个 baoyu-skills 插件，未引入其他无关 Skill。
-- **版本 (Version):** 上游仓库 commit `6b7a2e417500561a5ecdd0b168332f4142584617`（2026-07-03）；Skill 自身 `version: 1.1.0`（见其 SKILL.md frontmatter）。
-- **修改 (Modifications):** 未修改上游核心逻辑；仅额外放入上游仓库根目录的 `LICENSE` 副本到本目录。
-- **许可证 (License):** MIT License，Copyright (c) 2026 Jim Liu。全文见同目录 `LICENSE`。
+- **Source:** <https://github.com/JimLiu/baoyu-skills>, directory
+  `skills/baoyu-youtube-transcript/`
+- **Use:** YouTube metadata and caption retrieval only.
+- **License:** MIT. The copied Skill keeps its upstream LICENSE.
+- **Modifications:** No core upstream transcript logic is modified by this
+  project.
 
-## Python 依赖（运行时）
+## native-subtitle-quote-image — design reference
 
-| 包 | 用途 | 许可证 |
+- **Source:** <https://github.com/chengyi-ai/native-subtitle-quote-image>
+- **Reviewed revision:** public `main` tree
+  `f1fa5b70448f620ea92179357eca4b0222481b9d`
+- **License:** MIT for that repository's code and Skill instructions.
+- **How it informed V4:** its production constraints—1440×1920 3:4 output,
+  five time points at most, chronological nearby subtitle moments, exact frame
+  extraction, contact-sheet review and JPEG 4:4:4 export—were used as design
+  references.
+- **Code use:** shot-n-clip does not copy its embedded-subtitle renderer. V4
+  independently renders verified Chinese/English text and retains this
+  project's source, translation and selection audits.
+
+## Python runtime dependencies
+
+| Package | Purpose | License |
 |---|---|---|
-| Pillow | 确定性图像渲染（拼贴图、圆角、文字排版） | MIT-CMU |
-| PyYAML | 读取 `config/brand.yaml` 与样式 YAML | MIT |
-| yt-dlp | 下载 ≤720p 视频流（仅画面，不取音频） | Unlicense |
+| Pillow | deterministic image rendering | MIT-CMU |
+| PyYAML | style/config loading | MIT |
+| yt-dlp | source video download | Unlicense |
 
-系统依赖：`ffmpeg` / `ffprobe`（LGPL/GPL 二进制，本仓库不分发）。字体使用系统已安装字体，不复制、不打包字体文件。
+System dependencies include FFmpeg/FFprobe. Fonts are discovered from the host
+system and are never copied or redistributed by this repository.
