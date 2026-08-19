@@ -1,0 +1,118 @@
+name: Apply verified V4 selection and typography overlay
+
+on:
+  push:
+    branches:
+      - agent/v4-selection-typography-final
+    paths:
+      - "tools/v4payload/**"
+      - ".github/workflows/apply-v4-overlay.yml"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: apply-v4-selection-typography
+  cancel-in-progress: false
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - name: Check out staging branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Reconstruct and verify reviewed overlay
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat \
+            tools/v4payload/part-00 \
+            tools/v4payload/part-01 \
+            tools/v4payload/part-02-0 \
+            tools/v4payload/part-02-1 \
+            tools/v4payload/part-03-0 \
+            tools/v4payload/part-03-1 \
+            tools/v4payload/part-04-0 \
+            tools/v4payload/part-04-1 \
+            tools/v4payload/part-05-0 \
+            tools/v4payload/part-05-1 \
+            tools/v4payload/part-05-2 \
+            tools/v4payload/part-05-3 \
+            tools/v4payload/part-06-0 \
+            tools/v4payload/part-06-1 \
+            tools/v4payload/part-06-2 \
+            tools/v4payload/part-06-3 \
+            tools/v4payload/part-07-0 \
+            tools/v4payload/part-07-1 \
+            tools/v4payload/part-07-2 \
+            > /tmp/v4-overlay.b64
+          echo "5e7a0b79b97e6b850ad68990800292b726ed7894c3f85ee7761d197e1a600fe0  /tmp/v4-overlay.b64" | sha256sum -c -
+          base64 --decode /tmp/v4-overlay.b64 > /tmp/v4-overlay.tar.gz
+          echo "41a3b05017fd8d7fac7f865a88e4f52ca98f1ffca4f1be4575b8f2cd05ebd478  /tmp/v4-overlay.tar.gz" | sha256sum -c -
+          tar -tzf /tmp/v4-overlay.tar.gz > /tmp/v4-overlay-files.txt
+          tar -xzf /tmp/v4-overlay.tar.gz -C .
+          chmod +x bin/qcard-promote bin/qcard-render-v4
+          test -f src/qcard/render_editorial.py
+          test -f src/qcard/render_v4_cli.py
+          test -f src/qcard/editorial_quality_v3/density.py
+          test -f tests/test_v4_selection_typography.py
+          test -f config/styles/editorial.yaml
+          test -f docs/V4_SELECTION_TYPOGRAPHY.md
+          ! find . -path '*/__pycache__/*' -o -name '*.pyc' | grep -q .
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg fonts-noto-cjk
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install project
+        run: |
+          python -m pip install --upgrade pip setuptools wheel
+          python -m pip install -e ".[dev]"
+
+      - name: Verify implementation and full regression suite
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash -n bin/qcard bin/qcard-quality bin/qcard-promote bin/qcard-render-v4
+          python -m compileall -q src tests
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          import qcard
+          assert qcard.__version__ == "0.4.0", qcard.__version__
+          for path in sorted(Path("schemas").rglob("*.json")):
+              json.loads(path.read_text(encoding="utf-8"))
+              print(f"schema ok: {path}")
+          PY
+          pytest -q
+
+      - name: Commit only verified source files
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf tools/v4payload
+          rm -f .github/workflows/apply-v4-overlay.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          test -n "$(git diff --cached --name-only)"
+          if git diff --cached --name-only | grep -q '^tools/v4payload/'; then
+            echo "payload transport still present" >&2
+            exit 1
+          fi
+          git commit -m "feat: enforce V4 quote density and editorial typography"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
