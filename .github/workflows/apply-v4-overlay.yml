@@ -61,17 +61,76 @@ jobs:
           tar -tzf /tmp/v4-overlay.tar.gz > /tmp/v4-overlay-files.txt
           tar -xzf /tmp/v4-overlay.tar.gz -C .
           chmod +x bin/qcard-promote bin/qcard-render-v4
+
           python - <<'PY'
           from pathlib import Path
-          path = Path('.github/workflows/ci.yml')
-          text = path.read_text(encoding='utf-8')
-          text = text.replace('runs-on: ubuntu-latest', 'runs-on: ubuntu-22.04')
-          text = text.replace(
-              'sudo apt-get update\n          sudo apt-get install -y ffmpeg fonts-noto-cjk',
-              'sudo apt-get update -qq\n          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends fonts-noto-cjk\n          command -v ffmpeg',
+
+          def replace_once(path_value: str, old: str, new: str) -> None:
+              path = Path(path_value)
+              text = path.read_text(encoding="utf-8")
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(
+                      f"expected exactly one patch target in {path}, found {count}"
+                  )
+              path.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+          # Keep V4's compact-text contract while upgrading the legacy V3 fixture.
+          replace_once(
+              "tests/test_editorial_quality_v3.py",
+              '''                "recommended_zh": "有人用大模型把学习提速，也有人拿它直接跳过学习。",
+                          "review": {"verdict": "pass", "issues": []},
+          ''',
+              '''                "recommended_zh": "有人用大模型把学习提速，也有人拿它直接跳过学习。",
+                          "compact_zh": "有人用大模型加快学习，也有人用它跳过学习。",
+                          "display_en": "Those who use LLMs to learn faster than ever, and those who use LLMs to skip learning altogether.",
+                          "review": {"verdict": "pass", "issues": []},
+          ''',
           )
-          path.write_text(text, encoding='utf-8')
+
+          # Make the promotion regression fixture itself satisfy the stricter
+          # topic-grounding and standalone-density requirements.
+          replace_once(
+              "tests/test_v4_selection_typography.py",
+              '''        _candidate("c002", "Passion can remain passive.", "passion can stay passive", ["fascination"], 50),
+                  _candidate("c003", "Fascination sustains study.", "fascination sustains study", ["fascination"], 100),
+          ''',
+              '''        _candidate("c002", "Fascination differs from passive passion.", "fascination differs from passive passion", ["fascination"], 50),
+                  _candidate("c003", "Fascination sustains deliberate study over time.", "fascination sustains deliberate study", ["fascination"], 100),
+          ''',
+          )
+
+          # A dense numeric fact stack is a paragraph even when raw CJK visual
+          # units narrowly miss the generic threshold. This directly blocks the
+          # Gallup-style 23% + 59% subtitle paragraph seen in the failed output.
+          replace_once(
+              "src/qcard/editorial_quality_v3/translation.py",
+              '''        if sentence_count(zh) > 2:
+                      report.error(f"{qid}: recommended_zh is a paragraph, not one quote unit")
+          ''',
+              '''        numeric_facts = re.findall(r"\\d+(?:\\.\\d+)?%?", zh)
+                  if len(numeric_facts) >= 2 and visual_units > 28:
+                      report.error(
+                          f"{qid}: recommended_zh visual load {visual_units:.1f} contains "
+                          f"{len(numeric_facts)} numeric facts; split/replace the quote"
+                      )
+                  if sentence_count(zh) > 2:
+                      report.error(f"{qid}: recommended_zh is a paragraph, not one quote unit")
+          ''',
+          )
+
+          # Keep final matrix runs on the faster stable runner and avoid
+          # reinstalling ffmpeg, which is already present on hosted runners.
+          ci_path = Path(".github/workflows/ci.yml")
+          ci_text = ci_path.read_text(encoding="utf-8")
+          ci_text = ci_text.replace("runs-on: ubuntu-latest", "runs-on: ubuntu-22.04")
+          ci_text = ci_text.replace(
+              "sudo apt-get update\n          sudo apt-get install -y ffmpeg fonts-noto-cjk",
+              "sudo apt-get update -qq\n          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends fonts-noto-cjk\n          command -v ffmpeg",
+          )
+          ci_path.write_text(ci_text, encoding="utf-8")
           PY
+
           test -f src/qcard/render_editorial.py
           test -f src/qcard/render_v4_cli.py
           test -f src/qcard/editorial_quality_v3/density.py
