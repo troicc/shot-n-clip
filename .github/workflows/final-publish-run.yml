@@ -1,0 +1,62 @@
+name: Final publishable output input bundle
+
+on:
+  push:
+    branches:
+      - agent/final-publish-artifact-run
+    paths:
+      - .github/workflows/final-publish-run.yml
+
+permissions:
+  contents: read
+
+jobs:
+  prepare:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ffmpeg fonts-wqy-zenhei
+      - name: Install project
+        run: |
+          python -m pip install --upgrade pip setuptools wheel
+          python -m pip install -e '.[dev]'
+      - name: Fetch captions and source video
+        shell: bash
+        run: |
+          set -euo pipefail
+          bin/qcard fetch 'https://youtu.be/z-WfDn_0AWE'
+          bin/qcard source-map work/z-WfDn_0AWE
+          python - <<'PY'
+          from qcard.video import download_video
+          path = download_video(
+              'work/z-WfDn_0AWE',
+              'https://youtu.be/z-WfDn_0AWE',
+              venv_dir=None,
+              max_height=720,
+          )
+          print(path)
+          PY
+          test -s work/z-WfDn_0AWE/source_video.mp4
+          test -s work/z-WfDn_0AWE/source_map.json
+          test -s work/z-WfDn_0AWE/transcript/transcript-raw.json
+      - name: Upload source bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: shot-n-clip-final-publish-inputs
+          include-hidden-files: true
+          compression-level: 3
+          retention-days: 2
+          path: |
+            .
+            !.git/**
+            !.venv/**
+            !**/__pycache__/**
+            !.cache/**
