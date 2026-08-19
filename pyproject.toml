@@ -1,7 +1,7 @@
 [project]
 name = "quote-strip-studio"
-version = "0.3.0"
-description = "Source-grounded YouTube quote-card pipeline for Xiaohongshu and WeChat, with deterministic V3 editorial quality gates."
+version = "0.4.0"
+description = "Source-grounded YouTube quote-card pipeline with compact theme selection and high-clarity V4 typography."
 requires-python = ">=3.9"
 dependencies = [
     "Pillow>=10.0.0",
@@ -15,6 +15,8 @@ dev = ["pytest>=7.0"]
 [project.scripts]
 qcard = "qcard.cli:main"
 qcard-quality = "qcard.editorial_quality_v3.cli:main"
+qcard-promote = "qcard.promote_selection:main"
+qcard-render-v4 = "qcard.render_v4_cli:main"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

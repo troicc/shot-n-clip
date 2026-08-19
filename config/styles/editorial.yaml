@@ -1,0 +1,25 @@
+# High-clarity 3:4 style for bilingual Xiaohongshu / WeChat cards.
+# Inspired by native-subtitle collage production constraints: 1440x1920,
+# five nearby source moments, lower subtitle placement, and 4:4:4 JPEG export.
+name: editorial
+canvas: [1440, 1920]
+corner_radius: 64
+strip_gap: 6
+gap_color: [8, 8, 10]
+max_width_ratio: 0.86
+crop_center_y: 0.38
+gradient_alpha: 220
+gradient_extra_px: 34
+bottom_padding_px: 22
+block_gap_px: 12
+zh_stroke_width: 2
+en_stroke_width: 1
+jpg_quality: 96
+inline_default_count: 5
+
+zh_font_range: [72, 60]
+en_font_range: [46, 36]
+inline_zh_font_range: [62, 50]
+inline_en_font_range: [38, 30]
+zh_line_spacing: 1.16
+en_line_spacing: 1.16

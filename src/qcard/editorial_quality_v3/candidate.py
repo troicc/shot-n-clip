@@ -6,6 +6,9 @@ from typing import Any, Dict, List, Mapping, Optional, Tuple
 
 from .common import (PASS_THRESHOLD, SCHEMA_VERSION, Report, _nonempty,
                      detect_context_dependency, similarity, _norm)
+from .density import (matched_anchors, source_density_flags,
+                      valid_anchor_term)
+
 
 def validate_candidate_pool(
     data: Any, source_map: Optional[Mapping[str, Any]] = None
@@ -112,13 +115,37 @@ def validate_candidate_pool(
 
         source = str(candidate.get("exact_source_text", ""))
         computed_flags = detect_context_dependency(source)
+        density_flags = source_density_flags(source)
         declared_flags = candidate.get("context_dependency_flags")
         if not isinstance(declared_flags, list):
             report.error(f"{tag}.context_dependency_flags must be an array")
             declared_flags = []
-        for flag in computed_flags:
+        for flag in computed_flags + density_flags:
             if flag not in declared_flags:
-                report.error(f"{tag}: undeclared context-dependency flag {flag!r}")
+                report.error(f"{tag}: undeclared candidate-quality flag {flag!r}")
+
+        topic_terms = candidate.get("topic_terms")
+        if topic_terms is None:
+            # Backward-compatible read of pre-V4 fixtures. New agents always
+            # write topic_terms; selection still grounds anchors in source text.
+            topic_terms = []
+            if candidate.get("verdict") == "pass":
+                report.warn(f"{tag}: pass candidate has no topic_terms (legacy artifact)")
+        elif not isinstance(topic_terms, list):
+            report.error(f"{tag}.topic_terms must be an array")
+            topic_terms = []
+        cleaned_terms = [str(term).strip() for term in topic_terms if _nonempty(term)]
+        if len(cleaned_terms) != len(topic_terms):
+            report.error(f"{tag}.topic_terms must contain only non-empty strings")
+        if len(set(term.lower() for term in cleaned_terms)) != len(cleaned_terms):
+            report.error(f"{tag}.topic_terms contains duplicates")
+        invalid_terms = [term for term in cleaned_terms if not valid_anchor_term(term)]
+        if invalid_terms:
+            report.error(f"{tag}.topic_terms contains generic/invalid terms: {invalid_terms}")
+        if cleaned_terms:
+            matched = matched_anchors(cleaned_terms, source, str(candidate.get("claim_signature", "")))
+            if not matched:
+                report.error(f"{tag}: no topic_term is grounded in source or claim_signature")
 
         status = candidate.get("standalone_status")
         verdict = candidate.get("verdict")
@@ -151,16 +178,21 @@ def validate_candidate_pool(
                 "bare_reply",
                 "unresolved_opening_reference",
                 "too_short_to_carry_claim",
+                "source_too_many_characters",
+                "source_too_many_words",
+                "multi_sentence_paragraph",
+                "thesis_plus_example_overload",
+                "too_many_numeric_facts",
             }
-            bad = sorted(fatal & set(computed_flags))
+            bad = sorted(fatal & set(computed_flags + density_flags))
             if bad:
-                report.error(f"{tag}: pass candidate is not standalone ({', '.join(bad)})")
+                report.error(f"{tag}: pass candidate is not card-ready ({', '.join(bad)})")
             if status != "independent":
                 report.error(f"{tag}: pass candidate must have standalone_status='independent'")
             if isinstance(reasons, list) and reasons:
                 report.error(f"{tag}: pass candidate must not carry rejection_reasons")
-            if len(source) > 240:
-                report.error(f"{tag}: source text is too long for a quote card ({len(source)} chars)")
+            if cleaned_terms and not 1 <= len(cleaned_terms) <= 4:
+                report.error(f"{tag}: pass candidate needs at most 4 grounded topic_terms")
 
     # Candidate-level duplicate claims create bad packs later; catch them early.
     passed = [c for c in index.values() if c.get("verdict") == "pass"]

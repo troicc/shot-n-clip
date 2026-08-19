@@ -1,14 +1,13 @@
 ---
 name: native-subtitle-quote-image
-description: V3 editorial pipeline for source-grounded multi-pack quote cards. Mines a broad candidate pool, independently audits selection, performs claim-unit translation review, then renders Chinese/English/bilingual cards and platform copy.
+description: Source-grounded multi-pack quote-card pipeline with compact candidate selection, chronological theme locality, native Chinese review, and high-clarity editorial rendering.
 ---
 
-# native-subtitle-quote-image — V3 editorial-quality pipeline
+# native-subtitle-quote-image — editorial-quality pipeline
 
-The project is a Claude Code skill plus deterministic local tools. Runtime
-Python never calls an LLM API. Semantic work happens in the current coding-agent
-session; source verification, hard quality gates, frame extraction and rendering
-are deterministic.
+Runtime Python never calls an LLM API. The coding-agent session performs
+candidate mining, selection, translation and copy; deterministic tools verify
+source evidence, density, theme locality, translation fidelity and rendering.
 
 ## Invocation
 
@@ -18,174 +17,150 @@ are deterministic.
 
 Always single-quote the URL in zsh.
 
-## Why V3 exists
+## Default output style
 
-V2 had good schemas but could still approve weak material because one model pass
-both chose and justified quotes, reviewer scores were self-reported, and style
-lint could not catch semantic inventions such as adding “成功” to a source that
-only said input/output. V3 adds three compulsory artifacts:
+Use the high-clarity renderer for all new work:
 
-- `candidate_pool.json` — broad source-verbatim candidates, including rejects;
-- `selection_audit.json` — independent line-by-line direct-support/drop/
-  competitor review;
-- `packs/<id>/translation_audit.json` — claim units, back-translation, empty
-  fidelity ledger and native-Chinese checks.
+```bash
+bin/qcard-render-v4 work/<video-id> --mode all --style editorial
+```
 
-The existing V2 `editorial_pack.json` remains the render contract.
+`editorial` outputs 1440×1920, 4–5 source-ordered lines, lower subtitle
+placement with outlined type, and JPEG 4:4:4 export. `classic` remains available
+for compatibility.
 
-## Pipeline — run in order and resume completed stages
+The useful constraints are inspired by native-subtitle collage practice:
+nearby chronological subtitle moments, five points at most, high-resolution 3:4
+output, and actual visual review. We do **not** copy embedded subtitles or skip
+source/translation validation; this project still redraws verified bilingual
+text.
 
-### 0. Preflight and fetch
+## Pipeline
+
+### 0. Preflight and source
 
 ```bash
 bin/qcard preflight
 bin/qcard fetch '<youtube-url>'
 bin/qcard source-map work/<video-id>
-```
-
-Prefer manual source-language captions. Automatic captions are allowed only
-with ASR warnings and review clips for doubtful names/numbers.
-
-### 1. Prepare source chunks
-
-```bash
 bin/qcard-quality prepare work/<video-id>
 ```
 
-This writes `editorial_inputs/manifest.json` and ~18k-character transcript
-chunks with three-segment boundary overlap. Every manifest chunk must be mined;
-do not infer a long video from its opening.
+Prefer manual source-language captions. Doubtful ASR names/numbers require
+review clips and manual review.
 
-### 2. Broad candidate mining
+### 1. Mine compact atomic candidates
 
-For every manifest chunk, invoke `quote-candidate-miner`. Save each returned JSON
-under:
+Invoke `quote-candidate-miner` for every manifest chunk. Save outputs under
+`editorial_inputs/candidates/`.
 
-`work/<video-id>/editorial_inputs/candidates/chunk-XXXX.json`
+A passing candidate is normally:
 
-The miner must preserve exact source spans and explicitly reject bare answers,
-setup-only numbers, unresolved pronouns, generic filler and low-confidence ASR.
+- ≤28 English words;
+- ≤180 source characters;
+- ≤2 sentences;
+- one claim, or one complete contrast;
+- 1–4 source-grounded `topic_terms`.
 
-### 3. Curate pool and propose packs
+Split a compact claim from its anecdote instead of putting both into one strip.
 
-Invoke `angle-pack-editor` with the manifest and all chunk candidate files. It
-must write:
+### 2. Pool and propose narrow packs
 
-- `candidate_pool.json`
-- `pack_proposals.json`
-
-Then run:
+Invoke `angle-pack-editor` to write `candidate_pool.json` and
+`pack_proposals.json`, then:
 
 ```bash
 bin/qcard-quality validate-candidates work/<video-id>
 ```
 
-Fix every error at the source artifact. Never loosen the validator.
+Each proposal uses 1–3 concrete `anchor_terms`, 4–5 candidates, ascending source
+time, adjacent gaps ≤120 seconds and total span ≤6 minutes. Do not combine
+survey statistics, school admissions, unrelated career stories and AI merely
+because the whole talk mentions work.
 
-### 4. Independent selection review
+### 3. Independent selection
 
-Invoke `selection-reviewer`. It writes `selection_audit.json` after standalone,
-direct-support, incremental-value, drop, competitor and weakest-line tests.
+Invoke `selection-reviewer`, writing `selection_audit.json`.
 
 ```bash
 bin/qcard-quality validate-selection work/<video-id>
 ```
 
-Only `status=ready` packs continue. A 90-minute video may yield four packs or
-none; pack count is a ceiling, never a quota.
+Only ready packs continue. Four strong lines are better than five with a weak
+bridge. The previous quote-dispersion rule is removed: nearby source passages
+are preferred when they form one continuous expression.
 
-### 5. Source audit and Chinese editorial pass
+### 4. Source audit and Chinese editing
 
-For each ready pack:
+For every ready pack:
 
-1. Run `source-auditor` on the selected candidate spans.
-2. Run `zh-editor` per quote. Assemble:
-   - the existing V2 `packs/<id>/editorial_pack.json`;
-   - V3 `packs/<id>/translation_audit.json`.
-3. Run `fidelity-reviewer` blind. Do not show editor self-rationale.
-4. Send `revise` issues back to zh-editor, maximum two rounds.
-5. `reject_selection` returns the line to selection-reviewer; do not “translate
-   around” a weak excerpt.
-6. A doubtful source becomes `manual_review`, not a confident quote.
+1. `source-auditor` verifies exact source spans and entities.
+2. `zh-editor` writes V2 `editorial_pack.json` and V3
+   `translation_audit.json`.
+3. `fidelity-reviewer` first reads Chinese blind, then checks source fidelity.
+4. Maximum two revisions. Bad source returns to selection.
 
-Validate each pack immediately:
+Hard visual budgets:
+
+- recommended Chinese target ≤32 visual units, hard ceiling 38;
+- compact Chinese ≤32;
+- display English ≤28 words and ≤2 sentences;
+- both languages ≤2 rendered lines.
 
 ```bash
 bin/qcard-quality validate-translation work/<video-id> --pack pack-01
 ```
 
-### 6. Platform copy
+### 5. Platform copy and strict validation
 
-Only after translation passes, invoke `platform-copy-editor` and write:
-
-- `publish_xhs.json`
-- `publish_wechat.json`
-
-Copy must state the pack's specific tension/mechanism, not praise itself. It may
-not invent first-person experience, identities, numbers or outcomes.
-
-### 7. Dual strict validation
-
-Both validators are required:
+Generate Xiaohongshu and WeChat copy only after translation passes.
 
 ```bash
-bin/qcard validate-editorial work/<video-id> --strict
 bin/qcard-quality validate work/<video-id> --strict
+bin/qcard-promote work/<video-id>
 ```
 
-V2 protects source spans, entities, English edits, modality, copy schema and
-layout. V3 protects candidate quality, selection independence, claim coverage,
-back-translation, natural Chinese and source/selection/translation binding.
+Never loosen a gate to rescue a chosen line. The V4 renderer also runs the
+legacy source/entity/display-English checks, while intentionally ignoring the
+obsolete quote-dispersion rule that caused topic-collage packs.
 
-A model-written score never overrides a hard error.
-
-### 8. Render and visual QA
+### 6. High-clarity render and visual QA
 
 ```bash
-bin/qcard render-packs work/<video-id> --mode all
+bin/qcard-render-v4 work/<video-id> --mode all --style editorial
 ```
 
-Actually open every output. Check:
+Open every PNG/JPG and `layout_report.json`. Check:
 
-- 1080×1440 and rounded outer corners;
-- no English word split;
-- no tiny widow line;
-- Chinese reads naturally without looking at English;
-- pair pages use identical frame order;
-- inline bilingual defaults to five quotes;
-- selected frame matches the speaker and avoids blinking/transition frames.
+- 1440×1920 and rounded corners;
+- 4–5 strips only;
+- no third text line in either language;
+- no tiny orphan/widow line;
+- face remains visible above the lower gradient;
+- Chinese is natural without English;
+- source moments remain chronological;
+- JPG edges are crisp (quality 96, 4:4:4/subsampling 0).
 
-Use contact sheet timestamps to pin a better frame, then rerender. At least one
-look → fix → rerender cycle is expected for a real demo.
+At least one look → fix → rerender cycle is required for a real task.
 
-### 9. Final report and style memory
+## Non-negotiable regressions
+
+- No naked `Only 23 percent said yes.`;
+- no unresolved `Those that ...`;
+- no paragraph-sized Gallup/survey blocks in one strip;
+- no pack spanning multiple unrelated sections;
+- no unsupported “成功”;
+- preserve `maybe`, exact numbers, `artisan` identity and input/output contrast;
+- reject `学习自己会发生`, `零刻意努力`, `自动去学`, `影响超自己`;
+- do not put the AI jetpack quote inside a fascination-only learning pack;
+- no fixed six-line quota.
+
+## Final report and memory
 
 ```bash
 bin/qcard report work/<video-id>
 bin/qcard approve work/<video-id> --pack pack-01
 ```
 
-Approve only after human review. Rejected packs should be recorded with a
-specific reason (`weak_angle`, `literal_translation`, `unnatural_wording`,
-`generic_copy`, etc.). The next run reads seed examples plus recent user-approved
-and rejected examples.
-
-## Non-negotiable regressions
-
-- Never publish `Only 23 percent said yes.` without the survey question inside
-  the contiguous source quote.
-- Never turn input/output into “成功的原因/结果” unless success exists in source.
-- Reject Chinese such as `学习自己会发生`, `零刻意努力`, `自动去学`,
-  `影响超自己`, `对着迷的人`.
-- Preserve craft identity in `artisans`, modality in `maybe`, exact numbers,
-  names, negation and causal direction.
-- Do not select two lines that both merely say “着迷会让学习自动发生”.
-- Do not force six lines or four packs.
-
-## Failure handling
-
-No captions → report; no Whisper fallback in this project. YouTube blocked → use
-upstream fallbacks, never read browser cookies without user approval. Video
-download failure → keep editorial artifacts and report render incomplete. Text
-overflow → use a faithful compact variant or replace the quote; never shrink
-below the readability floor.
+Approve only after human visual/editorial review. Record rejections with a
+specific reason so future generations learn from actual choices.
