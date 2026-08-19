@@ -18,10 +18,10 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
-      - name: Install CJK fonts for renderer tests
+      - name: Install CJK font for renderer tests
         run: |
           sudo apt-get update -qq
-          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends fonts-noto-cjk
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends fonts-wqy-zenhei
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
