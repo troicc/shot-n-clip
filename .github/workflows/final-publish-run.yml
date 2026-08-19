@@ -1,4 +1,4 @@
-name: Final publishable output input bundle
+name: Final publishable ESkB4 source bundle
 
 on:
   push:
@@ -6,41 +6,71 @@ on:
       - agent/final-publish-artifact-run
     paths:
       - .github/workflows/final-publish-run.yml
-  pull_request:
-    branches:
-      - main
 
 permissions:
   contents: read
 
 jobs:
   prepare:
-    if: github.event_name == 'push' || github.head_ref == 'agent/final-publish-artifact-run'
     runs-on: ubuntu-22.04
-    timeout-minutes: 20
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
-      - name: Download the public TED MP4 and poster
+      - name: Download public episode references
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p work/z-WfDn_0AWE/public_source
+          OUT='work/ESkB4_8YClI/public_source'
+          mkdir -p "$OUT/thumbnails"
           UA='Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/150 Safari/537.36'
-          curl --fail --location --retry 5 --retry-all-errors --continue-at - --user-agent "$UA" \
-            'https://py.tedcdn.com/consus/projects/00/87/22/products/2026-bill-gurley-fallback-742ecccb-5ec9-43b4-9c29-1a22b039d820-1200k.mp4' \
-            -o work/z-WfDn_0AWE/source_video.mp4
+
           curl --fail --location --retry 4 --retry-all-errors --user-agent "$UA" \
-            'https://pi.tedcdn.com/r/talkstar-assets.s3.amazonaws.com/production/talks/talk_180789/723fcb38-8e0b-4c51-8bd9-bb6173158f31/BillGurley_2026-embed.jpg?quality=95&w=1920' \
-            -o work/z-WfDn_0AWE/public_source/BillGurley_2026-embed.jpg
-          test -s work/z-WfDn_0AWE/source_video.mp4
-          test -s work/z-WfDn_0AWE/public_source/BillGurley_2026-embed.jpg
-          ls -lh work/z-WfDn_0AWE/source_video.mp4 work/z-WfDn_0AWE/public_source/BillGurley_2026-embed.jpg
-      - name: Upload TED video bundle
+            'https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=ESkB4_8YClI&format=json' \
+            -o "$OUT/oembed.json"
+          curl --fail --location --retry 4 --retry-all-errors --user-agent "$UA" \
+            'https://www.ted.com/podcasts/charles-duhigg-2025' \
+            -o "$OUT/ted-transcript.html"
+          curl --fail --location --retry 4 --retry-all-errors --user-agent "$UA" \
+            'https://pod.wave.co/podcast/how-to-be-a-better-human/how-to-communicate-better-w-charles-duhigg' \
+            -o "$OUT/wave-transcript.html"
+
+          for name in maxresdefault sddefault hqdefault 0 1 2 3 hq1 hq2 hq3 mq1 mq2 mq3; do
+            curl --fail --location --retry 3 --retry-all-errors --user-agent "$UA" \
+              "https://i.ytimg.com/vi/ESkB4_8YClI/${name}.jpg" \
+              -o "$OUT/thumbnails/${name}.jpg" || rm -f "$OUT/thumbnails/${name}.jpg"
+          done
+
+          curl --fail --location --retry 3 --retry-all-errors --user-agent "$UA" \
+            'https://talkstar-assets.s3.amazonaws.com/production/talks/talk_146850/c43ce5ef-9d55-413e-bf59-a8ba4813016b/CharlesDuhigg_2024X-stageshot.jpg' \
+            -o "$OUT/charles-duhigg-ted-stage.jpg"
+
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          from PIL import Image
+
+          out = Path('work/ESkB4_8YClI/public_source')
+          meta = json.loads((out / 'oembed.json').read_text(encoding='utf-8'))
+          print(json.dumps(meta, ensure_ascii=False, indent=2))
+          for path in sorted((out / 'thumbnails').glob('*.jpg')):
+              try:
+                  with Image.open(path) as im:
+                      print(path, im.size, path.stat().st_size)
+              except Exception as exc:
+                  print('bad image', path, exc)
+          with Image.open(out / 'charles-duhigg-ted-stage.jpg') as im:
+              print(out / 'charles-duhigg-ted-stage.jpg', im.size, (out / 'charles-duhigg-ted-stage.jpg').stat().st_size)
+          PY
+
+          test -s "$OUT/oembed.json"
+          test -s "$OUT/ted-transcript.html"
+          test -s "$OUT/wave-transcript.html"
+          test -n "$(find "$OUT/thumbnails" -type f -name '*.jpg' -print -quit)"
+
+      - name: Upload source bundle
         uses: actions/upload-artifact@v4
         with:
-          name: shot-n-clip-bill-gurley-video
-          compression-level: 0
+          name: shot-n-clip-ESkB4-source-bundle
+          compression-level: 6
           retention-days: 2
-          path: |
-            work/z-WfDn_0AWE/source_video.mp4
-            work/z-WfDn_0AWE/public_source/BillGurley_2026-embed.jpg
+          path: work/ESkB4_8YClI/public_source
