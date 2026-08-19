@@ -17,45 +17,30 @@ jobs:
   prepare:
     if: github.event_name == 'push' || github.head_ref == 'agent/final-publish-artifact-run'
     runs-on: ubuntu-22.04
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
-      - name: Fetch public TED source material
+      - name: Download the public TED MP4 and poster
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p work/z-WfDn_0AWE/public_source
           UA='Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/150 Safari/537.36'
-          curl --fail --location --retry 4 --retry-all-errors --user-agent "$UA" \
-            'https://www.ted.com/talks/bill_gurley_how_to_build_a_career_you_actually_love' \
-            -o work/z-WfDn_0AWE/public_source/ted-page.html
-          curl --fail --location --retry 4 --retry-all-errors --user-agent "$UA" \
-            'https://embed.ted.com/talks/bill_gurley_how_to_build_a_career_you_actually_love' \
-            -o work/z-WfDn_0AWE/public_source/ted-embed.html || true
+          curl --fail --location --retry 5 --retry-all-errors --continue-at - --user-agent "$UA" \
+            'https://py.tedcdn.com/consus/projects/00/87/22/products/2026-bill-gurley-fallback-742ecccb-5ec9-43b4-9c29-1a22b039d820-1200k.mp4' \
+            -o work/z-WfDn_0AWE/source_video.mp4
           curl --fail --location --retry 4 --retry-all-errors --user-agent "$UA" \
             'https://pi.tedcdn.com/r/talkstar-assets.s3.amazonaws.com/production/talks/talk_180789/723fcb38-8e0b-4c51-8bd9-bb6173158f31/BillGurley_2026-embed.jpg?quality=95&w=1920' \
             -o work/z-WfDn_0AWE/public_source/BillGurley_2026-embed.jpg
-          curl --fail --location --retry 4 --retry-all-errors --user-agent "$UA" \
-            'https://tryshadowing.com/vi/shadowing/how-to-build-a-career-you-love-bill-gurley-ted-z-WfDn_0AWE' \
-            -o work/z-WfDn_0AWE/public_source/tryshadowing.html || true
-          curl --fail --location --retry 4 --retry-all-errors --user-agent "$UA" \
-            'https://podscripts.co/podcasts/ted-talks-daily/how-to-build-a-career-you-actually-love-bill-gurley' \
-            -o work/z-WfDn_0AWE/public_source/podscripts.html || true
-          python - <<'PY'
-          from pathlib import Path
-          root = Path('work/z-WfDn_0AWE/public_source')
-          for path in sorted(root.iterdir()):
-              print(path, path.stat().st_size)
-          assert (root / 'ted-page.html').stat().st_size > 1000
-          assert (root / 'BillGurley_2026-embed.jpg').stat().st_size > 10000
-          PY
-      - name: Upload public source bundle
+          test -s work/z-WfDn_0AWE/source_video.mp4
+          test -s work/z-WfDn_0AWE/public_source/BillGurley_2026-embed.jpg
+          ls -lh work/z-WfDn_0AWE/source_video.mp4 work/z-WfDn_0AWE/public_source/BillGurley_2026-embed.jpg
+      - name: Upload TED video bundle
         uses: actions/upload-artifact@v4
         with:
-          name: shot-n-clip-final-publish-inputs
-          compression-level: 3
+          name: shot-n-clip-bill-gurley-video
+          compression-level: 0
           retention-days: 2
           path: |
-            .
-            !.git/**
-            !**/__pycache__/**
+            work/z-WfDn_0AWE/source_video.mp4
+            work/z-WfDn_0AWE/public_source/BillGurley_2026-embed.jpg
