@@ -6,12 +6,16 @@ on:
       - agent/final-publish-artifact-run
     paths:
       - .github/workflows/final-publish-run.yml
+  pull_request:
+    branches:
+      - main
 
 permissions:
   contents: read
 
 jobs:
   prepare:
+    if: github.event_name == 'push' || github.head_ref == 'agent/final-publish-artifact-run'
     runs-on: ubuntu-22.04
     timeout-minutes: 35
     steps:
