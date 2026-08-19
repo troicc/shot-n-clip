@@ -75,7 +75,6 @@ jobs:
                   )
               path.write_text(text.replace(old, new, 1), encoding="utf-8")
 
-          # Keep V4's compact-text contract while upgrading the legacy V3 fixture.
           replace_once(
               "tests/test_editorial_quality_v3.py",
               '''                "recommended_zh": "有人用大模型把学习提速，也有人拿它直接跳过学习。",
@@ -88,8 +87,6 @@ jobs:
           ''',
           )
 
-          # Make the promotion regression fixture itself satisfy the stricter
-          # topic-grounding and standalone-density requirements.
           replace_once(
               "tests/test_v4_selection_typography.py",
               '''        _candidate("c002", "Passion can remain passive.", "passion can stay passive", ["fascination"], 50),
@@ -100,9 +97,6 @@ jobs:
           ''',
           )
 
-          # A dense numeric fact stack is a paragraph even when raw CJK visual
-          # units narrowly miss the generic threshold. This directly blocks the
-          # Gallup-style 23% + 59% subtitle paragraph seen in the failed output.
           replace_once(
               "src/qcard/editorial_quality_v3/translation.py",
               '''        if sentence_count(zh) > 2:
@@ -119,14 +113,12 @@ jobs:
           ''',
           )
 
-          # Keep final matrix runs on the faster stable runner and avoid
-          # reinstalling ffmpeg, which is already present on hosted runners.
           ci_path = Path(".github/workflows/ci.yml")
           ci_text = ci_path.read_text(encoding="utf-8")
           ci_text = ci_text.replace("runs-on: ubuntu-latest", "runs-on: ubuntu-22.04")
           ci_text = ci_text.replace(
               "sudo apt-get update\n          sudo apt-get install -y ffmpeg fonts-noto-cjk",
-              "sudo apt-get update -qq\n          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends fonts-noto-cjk\n          command -v ffmpeg",
+              "sudo apt-get update -qq\n          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends fonts-noto-cjk",
           )
           ci_path.write_text(ci_text, encoding="utf-8")
           PY
@@ -143,7 +135,6 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends fonts-noto-cjk
-          command -v ffmpeg
 
       - name: Set up Python
         uses: actions/setup-python@v5
