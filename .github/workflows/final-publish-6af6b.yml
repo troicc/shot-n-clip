@@ -21,7 +21,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Download public transcript and visual references
+      - name: Download public metadata and visual references
         shell: bash
         run: |
           set -euo pipefail
@@ -32,10 +32,6 @@ jobs:
           curl --fail --location --retry 4 --retry-all-errors --user-agent "$UA" \
             'https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=6Af6b_wyiwI&format=json' \
             -o "$OUT/oembed.json"
-
-          curl --fail --location --retry 4 --retry-all-errors --user-agent "$UA" \
-            'https://www.english-video.net/v/en/2225' \
-            -o "$OUT/timestamped-transcript.html"
 
           curl --fail --location --retry 4 --retry-all-errors --user-agent "$UA" \
             'https://www.ted.com/talks/bill_gates_the_next_outbreak_we_re_not_ready' \
@@ -52,7 +48,6 @@ jobs:
           done
 
           test -s "$OUT/oembed.json"
-          test -s "$OUT/timestamped-transcript.html"
           test -s "$OUT/ted-talk.html"
           test -s "$OUT/bill-gates-ted-stage.jpg"
           test -n "$(find "$OUT/thumbnails" -type f -name '*.jpg' -print -quit)"
