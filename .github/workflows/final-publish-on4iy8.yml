@@ -1,0 +1,165 @@
+name: Final publishable ON4iy8 source bundle
+
+on:
+  push:
+    branches:
+      - agent/final-publish-on4iy8
+    paths:
+      - .github/workflows/final-publish-on4iy8.yml
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  prepare:
+    if: github.event_name == 'push' || github.head_ref == 'agent/final-publish-on4iy8'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Install source tooling
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ffmpeg
+          python -m pip install --upgrade pip
+          python -m pip install yt-dlp Pillow beautifulsoup4 lxml requests
+          ffmpeg -version | head -1
+
+      - name: Download public transcript, video and image references
+        shell: bash
+        run: |
+          set -euo pipefail
+          WORK='work/ON4iy8hq2hM'
+          OUT="$WORK/public_source"
+          mkdir -p "$OUT/thumbnails"
+          UA='Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/150 Safari/537.36'
+          TED_URL='https://www.ted.com/talks/katie_hood_the_difference_between_healthy_and_unhealthy_love'
+
+          curl --fail --location --retry 4 --retry-all-errors --user-agent "$UA" \
+            "$TED_URL" -o "$OUT/ted-page.html"
+          curl --fail --location --retry 4 --retry-all-errors --user-agent "$UA" \
+            'https://www.english-video.net/v/en/41353' \
+            -o "$OUT/timestamped-transcript.html"
+          curl --fail --location --retry 4 --retry-all-errors --user-agent "$UA" \
+            'https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=ON4iy8hq2hM&format=json' \
+            -o "$OUT/oembed.json"
+
+          for name in maxresdefault sddefault hqdefault 0 1 2 3 hq1 hq2 hq3 mq1 mq2 mq3; do
+            curl --fail --location --retry 3 --retry-all-errors --user-agent "$UA" \
+              "https://i.ytimg.com/vi/ON4iy8hq2hM/${name}.jpg" \
+              -o "$OUT/thumbnails/${name}.jpg" || rm -f "$OUT/thumbnails/${name}.jpg"
+          done
+
+          python -m yt_dlp --dump-single-json --no-playlist "$TED_URL" > "$OUT/ted-info.json" || true
+          python -m yt_dlp \
+            --no-playlist \
+            -f 'bv*[height<=720]+ba/b[height<=720]/b' \
+            --merge-output-format mp4 \
+            --remux-video mp4 \
+            -o "$WORK/source_video.%(ext)s" \
+            "$TED_URL" || true
+
+          python - <<'PY'
+          from __future__ import annotations
+          import json, re, subprocess
+          from pathlib import Path
+          import requests
+          from bs4 import BeautifulSoup
+
+          work = Path('work/ON4iy8hq2hM')
+          out = work / 'public_source'
+          page = (out / 'ted-page.html').read_text(encoding='utf-8', errors='ignore')
+          soup = BeautifulSoup(page, 'lxml')
+
+          poster = None
+          tag = soup.find('meta', attrs={'property': 'og:image'})
+          if tag and tag.get('content'):
+              poster = tag['content']
+          if poster:
+              response = requests.get(poster, timeout=60, headers={'User-Agent': 'Mozilla/5.0'})
+              response.raise_for_status()
+              (out / 'ted-poster.jpg').write_bytes(response.content)
+
+          urls = []
+          pattern = re.compile(r'https?://[^"\\\s<>]+(?:\.m3u8[^"\\\s<>]*|\.mp4[^"\\\s<>]*)')
+          for match in pattern.findall(page.replace('\\u0026', '&').replace('\\/', '/')):
+              value = match.replace('&amp;', '&')
+              if value not in urls:
+                  urls.append(value)
+
+          info_path = out / 'ted-info.json'
+          if info_path.exists() and info_path.stat().st_size:
+              try:
+                  info = json.loads(info_path.read_text(encoding='utf-8'))
+              except Exception:
+                  info = None
+              def walk(obj):
+                  if isinstance(obj, dict):
+                      for value in obj.values(): walk(value)
+                  elif isinstance(obj, list):
+                      for value in obj: walk(value)
+                  elif isinstance(obj, str) and obj.startswith('http') and ('.m3u8' in obj or '.mp4' in obj):
+                      if obj not in urls: urls.append(obj)
+              walk(info)
+
+          (out / 'candidate-video-urls.json').write_text(json.dumps(urls, indent=2), encoding='utf-8')
+          target = work / 'source_video.mp4'
+          if not target.exists() or target.stat().st_size < 1_000_000:
+              for index, url in enumerate(urls):
+                  temp = work / f'candidate-{index}.mp4'
+                  commands = [
+                      ['python', '-m', 'yt_dlp', '--no-playlist', '-f', 'best[height<=720]/best', '--merge-output-format', 'mp4', '--remux-video', 'mp4', '-o', str(temp), url],
+                      ['ffmpeg', '-hide_banner', '-loglevel', 'warning', '-y', '-user_agent', 'Mozilla/5.0', '-i', url, '-vf', 'scale=-2:720', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-b:a', '96k', '-movflags', '+faststart', str(temp)],
+                  ]
+                  for command in commands:
+                      try:
+                          subprocess.run(command, check=True, timeout=900)
+                      except Exception as exc:
+                          print('candidate failed', index, command[0], exc)
+                          continue
+                      if temp.exists() and temp.stat().st_size > 1_000_000:
+                          temp.replace(target)
+                          break
+                  if target.exists() and target.stat().st_size > 1_000_000:
+                      break
+
+          if not target.exists():
+              for candidate in work.glob('source_video.*'):
+                  if candidate.is_file() and candidate.stat().st_size > 1_000_000:
+                      candidate.replace(target)
+                      break
+
+          print('poster', poster)
+          print('candidate_urls', len(urls))
+          print('video_exists', target.exists(), target.stat().st_size if target.exists() else None)
+          PY
+
+          test -s "$OUT/ted-page.html"
+          test -s "$OUT/timestamped-transcript.html"
+          test -s "$OUT/oembed.json"
+          test -n "$(find "$OUT/thumbnails" -type f -name '*.jpg' -print -quit)"
+          test -s "$WORK/source_video.mp4"
+
+          ffprobe -v error -show_entries format=duration,size -of default=nw=1 "$WORK/source_video.mp4"
+          find "$WORK" -maxdepth 3 -type f -print0 | xargs -0 ls -lh
+
+      - name: Upload source bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: shot-n-clip-ON4iy8-source-bundle
+          compression-level: 3
+          retention-days: 2
+          path: |
+            work/ON4iy8hq2hM/public_source
+            work/ON4iy8hq2hM/source_video.mp4
+          if-no-files-found: error
