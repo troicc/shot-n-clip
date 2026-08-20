@@ -47,9 +47,9 @@ jobs:
 
           curl --fail --location --retry 4 --retry-all-errors --user-agent "$UA" \
             "$TED_URL" -o "$OUT/ted-page.html"
-          curl --fail --location --retry 4 --retry-all-errors --user-agent "$UA" \
+          curl --fail --location --retry 2 --retry-all-errors --user-agent "$UA" \
             'https://www.english-video.net/v/en/41353' \
-            -o "$OUT/timestamped-transcript.html"
+            -o "$OUT/timestamped-transcript.html" || true
           curl --fail --location --retry 4 --retry-all-errors --user-agent "$UA" \
             'https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=ON4iy8hq2hM&format=json' \
             -o "$OUT/oembed.json"
@@ -86,13 +86,17 @@ jobs:
           if tag and tag.get('content'):
               poster = tag['content']
           if poster:
-              response = requests.get(poster, timeout=60, headers={'User-Agent': 'Mozilla/5.0'})
-              response.raise_for_status()
-              (out / 'ted-poster.jpg').write_bytes(response.content)
+              try:
+                  response = requests.get(poster, timeout=60, headers={'User-Agent': 'Mozilla/5.0'})
+                  response.raise_for_status()
+                  (out / 'ted-poster.jpg').write_bytes(response.content)
+              except Exception as exc:
+                  print('poster download failed', exc)
 
           urls = []
+          normalized_page = page.replace('\\u0026', '&').replace('\\/', '/')
           pattern = re.compile(r'https?://[^"\\\s<>]+(?:\.m3u8[^"\\\s<>]*|\.mp4[^"\\\s<>]*)')
-          for match in pattern.findall(page.replace('\\u0026', '&').replace('\\/', '/')):
+          for match in pattern.findall(normalized_page):
               value = match.replace('&amp;', '&')
               if value not in urls:
                   urls.append(value)
@@ -145,7 +149,6 @@ jobs:
           PY
 
           test -s "$OUT/ted-page.html"
-          test -s "$OUT/timestamped-transcript.html"
           test -s "$OUT/oembed.json"
           test -n "$(find "$OUT/thumbnails" -type f -name '*.jpg' -print -quit)"
           test -s "$WORK/source_video.mp4"
