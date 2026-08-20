@@ -28,14 +28,17 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install yt-dlp Pillow beautifulsoup4 lxml
+          ffmpeg -version | head -1
       - name: Download public source material
         shell: bash
         run: |
           set -euo pipefail
           OUT='work/6Af6b_wyiwI/public_source'
+          WORK='work/6Af6b_wyiwI'
           mkdir -p "$OUT/thumbnails"
           UA='Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/150 Safari/537.36'
           TED_URL='https://www.ted.com/talks/bill_gates_the_next_outbreak_we_re_not_ready'
+          HLS_URL='https://hls.ted.com/project_masters/11314/manifest.m3u8?intro_master_id=9294'
 
           curl --fail --location --retry 4 --retry-all-errors --user-agent "$UA" \
             "$TED_URL" -o "$OUT/ted-page.html"
@@ -58,11 +61,17 @@ jobs:
           python -m yt_dlp --dump-single-json --no-playlist "$TED_URL" > "$OUT/ted-info.json" || true
           python -m yt_dlp \
             --no-playlist \
-            -f 'bv*[height<=720]+ba/b[height<=720]/b' \
+            -f 'best[height<=720]/best' \
             --merge-output-format mp4 \
             --remux-video mp4 \
-            -o 'work/6Af6b_wyiwI/source_video.%(ext)s' \
-            "$TED_URL" || true
+            -o "$WORK/source_video.%(ext)s" \
+            "$HLS_URL" || true
+
+          if [ ! -s "$WORK/source_video.mp4" ]; then
+            ffmpeg -hide_banner -loglevel warning -y \
+              -user_agent "$UA" -i "$HLS_URL" \
+              -map 0:v:0 -map 0:a:0? -c copy "$WORK/source_video.mp4" || true
+          fi
 
           python - <<'PY'
           from pathlib import Path
@@ -71,8 +80,7 @@ jobs:
           work = Path('work/6Af6b_wyiwI')
           target = work / 'source_video.mp4'
           if not target.exists():
-              candidates = [p for p in work.glob('source_video.*') if p.is_file()]
-              for source in candidates:
+              for source in [p for p in work.glob('source_video.*') if p.is_file()]:
                   if source.suffix.lower() == '.mp4':
                       source.replace(target)
                       break
@@ -93,14 +101,14 @@ jobs:
           test -s "$OUT/oembed.json"
           test -s "$OUT/bill-gates-ted-stage.jpg"
           test -n "$(find "$OUT/thumbnails" -type f -name '*.jpg' -print -quit)"
+          test -s "$WORK/source_video.mp4"
 
       - name: Upload source bundle
         uses: actions/upload-artifact@v4
         with:
           name: shot-n-clip-bill-gates-2015-source-bundle
-          compression-level: 3
+          compression-level: 0
           retention-days: 2
           path: |
             work/6Af6b_wyiwI/public_source
             work/6Af6b_wyiwI/source_video.mp4
-          if-no-files-found: warn
