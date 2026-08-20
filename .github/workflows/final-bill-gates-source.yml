@@ -6,12 +6,16 @@ on:
       - agent/final-publish-bill-gates-2015
     paths:
       - .github/workflows/final-bill-gates-source.yml
+  pull_request:
+    branches:
+      - main
 
 permissions:
   contents: read
 
 jobs:
   prepare:
+    if: github.event_name == 'push' || github.head_ref == 'agent/final-publish-bill-gates-2015'
     runs-on: ubuntu-22.04
     timeout-minutes: 25
     steps:
@@ -62,7 +66,6 @@ jobs:
 
           python - <<'PY'
           from pathlib import Path
-          import json
           from PIL import Image
 
           work = Path('work/6Af6b_wyiwI')
