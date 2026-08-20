@@ -1,0 +1,66 @@
+name: Final publishable 6Af6b source bundle
+
+on:
+  push:
+    branches:
+      - agent/final-publish-6af6b
+    paths:
+      - .github/workflows/final-publish-6af6b.yml
+
+permissions:
+  contents: read
+
+jobs:
+  prepare:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download public transcript and visual references
+        shell: bash
+        run: |
+          set -euo pipefail
+          OUT='work/6Af6b_wyiwI/public_source'
+          mkdir -p "$OUT/thumbnails"
+          UA='Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/150 Safari/537.36'
+
+          curl --fail --location --retry 4 --retry-all-errors --user-agent "$UA" \
+            'https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=6Af6b_wyiwI&format=json' \
+            -o "$OUT/oembed.json"
+
+          curl --fail --location --retry 4 --retry-all-errors --user-agent "$UA" \
+            'https://www.english-video.net/v/en/2225' \
+            -o "$OUT/timestamped-transcript.html"
+
+          curl --fail --location --retry 4 --retry-all-errors --user-agent "$UA" \
+            'https://www.ted.com/talks/bill_gates_the_next_outbreak_we_re_not_ready' \
+            -o "$OUT/ted-talk.html"
+
+          curl --fail --location --retry 4 --retry-all-errors --user-agent "$UA" \
+            'https://pe.tedcdn.com/images/ted/2c60223169fd66d3962f9f3c354081824d2914c5_2880x1620.jpg' \
+            -o "$OUT/bill-gates-ted-stage.jpg"
+
+          for name in maxresdefault sddefault hqdefault 0 1 2 3 hq1 hq2 hq3 mq1 mq2 mq3; do
+            curl --fail --location --retry 3 --retry-all-errors --user-agent "$UA" \
+              "https://i.ytimg.com/vi/6Af6b_wyiwI/${name}.jpg" \
+              -o "$OUT/thumbnails/${name}.jpg" || rm -f "$OUT/thumbnails/${name}.jpg"
+          done
+
+          test -s "$OUT/oembed.json"
+          test -s "$OUT/timestamped-transcript.html"
+          test -s "$OUT/ted-talk.html"
+          test -s "$OUT/bill-gates-ted-stage.jpg"
+          test -n "$(find "$OUT/thumbnails" -type f -name '*.jpg' -print -quit)"
+
+          echo 'Downloaded files:'
+          find "$OUT" -type f -maxdepth 2 -print0 | xargs -0 ls -lh
+          file "$OUT"/*.jpg "$OUT"/thumbnails/*.jpg | head -30
+
+      - name: Upload source bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: shot-n-clip-6Af6b-source-bundle
+          compression-level: 6
+          retention-days: 2
+          path: work/6Af6b_wyiwI/public_source
