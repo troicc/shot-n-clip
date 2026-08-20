@@ -20,6 +20,9 @@ jobs:
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
 
       - name: Download public transcript, visual references and TED HLS video
         shell: bash
@@ -47,7 +50,13 @@ jobs:
               -o "$OUT/thumbnails/${name}.jpg" || rm -f "$OUT/thumbnails/${name}.jpg"
           done
 
-          ffmpeg -hide_banner -loglevel warning -y \
+          python -m pip install --quiet imageio-ffmpeg
+          FFMPEG="$(python - <<'PY'
+          import imageio_ffmpeg
+          print(imageio_ffmpeg.get_ffmpeg_exe())
+          PY
+          )"
+          "$FFMPEG" -hide_banner -loglevel warning -y \
             -i 'https://hls.ted.com/project_masters/11314/manifest.m3u8?intro_master_id=9294&preview' \
             -vf 'scale=-2:540' -c:v libx264 -preset veryfast -crf 24 \
             -pix_fmt yuv420p -c:a aac -b:a 96k -movflags +faststart \
@@ -61,7 +70,7 @@ jobs:
 
           echo 'Downloaded files:'
           find "$OUT" -maxdepth 2 -type f -print0 | xargs -0 ls -lh
-          ffprobe -v error -show_entries format=duration,size -of default=nw=1 "$OUT/source_video.mp4"
+          "$FFMPEG" -hide_banner -i "$OUT/source_video.mp4" -f null - 2>&1 | tail -8
 
       - name: Upload source bundle
         uses: actions/upload-artifact@v4
