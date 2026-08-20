@@ -17,7 +17,7 @@ jobs:
   prepare:
     if: github.event_name == 'push' || github.head_ref == 'agent/final-publish-bill-gates-2015'
     runs-on: ubuntu-22.04
-    timeout-minutes: 25
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -26,8 +26,10 @@ jobs:
           cache: pip
       - name: Install source tooling
         run: |
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ffmpeg
           python -m pip install --upgrade pip
-          python -m pip install yt-dlp Pillow beautifulsoup4 lxml
+          python -m pip install Pillow beautifulsoup4 lxml
           ffmpeg -version | head -1
       - name: Download public source material
         shell: bash
@@ -58,20 +60,9 @@ jobs:
               -o "$OUT/thumbnails/${name}.jpg" || rm -f "$OUT/thumbnails/${name}.jpg"
           done
 
-          python -m yt_dlp --dump-single-json --no-playlist "$TED_URL" > "$OUT/ted-info.json" || true
-          python -m yt_dlp \
-            --no-playlist \
-            -f 'best[height<=720]/best' \
-            --merge-output-format mp4 \
-            --remux-video mp4 \
-            -o "$WORK/source_video.%(ext)s" \
-            "$HLS_URL" || true
-
-          if [ ! -s "$WORK/source_video.mp4" ]; then
-            ffmpeg -hide_banner -loglevel warning -y \
-              -user_agent "$UA" -i "$HLS_URL" \
-              -map 0:v:0 -map 0:a:0? -c copy "$WORK/source_video.mp4" || true
-          fi
+          ffmpeg -hide_banner -loglevel warning -y \
+            -user_agent "$UA" -i "$HLS_URL" \
+            -map 0:v:0 -map 0:a:0? -c copy "$WORK/source_video.mp4"
 
           python - <<'PY'
           from pathlib import Path
@@ -79,11 +70,6 @@ jobs:
 
           work = Path('work/6Af6b_wyiwI')
           target = work / 'source_video.mp4'
-          if not target.exists():
-              for source in [p for p in work.glob('source_video.*') if p.is_file()]:
-                  if source.suffix.lower() == '.mp4':
-                      source.replace(target)
-                      break
           out = work / 'public_source'
           print('video_exists', target.exists(), target.stat().st_size if target.exists() else None)
           for path in sorted(out.glob('*.jpg')) + sorted((out / 'thumbnails').glob('*.jpg')):
