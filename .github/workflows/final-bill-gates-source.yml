@@ -1,0 +1,103 @@
+name: Final publishable Bill Gates 2015 source bundle
+
+on:
+  push:
+    branches:
+      - agent/final-publish-bill-gates-2015
+    paths:
+      - .github/workflows/final-bill-gates-source.yml
+
+permissions:
+  contents: read
+
+jobs:
+  prepare:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Install source tooling
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install yt-dlp Pillow beautifulsoup4 lxml
+      - name: Download public source material
+        shell: bash
+        run: |
+          set -euo pipefail
+          OUT='work/6Af6b_wyiwI/public_source'
+          mkdir -p "$OUT/thumbnails"
+          UA='Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/150 Safari/537.36'
+          TED_URL='https://www.ted.com/talks/bill_gates_the_next_outbreak_we_re_not_ready'
+
+          curl --fail --location --retry 4 --retry-all-errors --user-agent "$UA" \
+            "$TED_URL" -o "$OUT/ted-page.html"
+          curl --fail --location --retry 4 --retry-all-errors --user-agent "$UA" \
+            'https://www.rev.com/transcripts/bill-gates-ted-talk-transcript-from-2015-warns-of-pandemics-epidemics' \
+            -o "$OUT/rev-transcript.html"
+          curl --fail --location --retry 4 --retry-all-errors --user-agent "$UA" \
+            'https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=6Af6b_wyiwI&format=json' \
+            -o "$OUT/oembed.json"
+          curl --fail --location --retry 4 --retry-all-errors --user-agent "$UA" \
+            'https://pe.tedcdn.com/images/ted/2c60223169fd66d3962f9f3c354081824d2914c5_2880x1620.jpg' \
+            -o "$OUT/bill-gates-ted-stage.jpg"
+
+          for name in maxresdefault sddefault hqdefault 0 1 2 3 hq1 hq2 hq3 mq1 mq2 mq3; do
+            curl --fail --location --retry 3 --retry-all-errors --user-agent "$UA" \
+              "https://i.ytimg.com/vi/6Af6b_wyiwI/${name}.jpg" \
+              -o "$OUT/thumbnails/${name}.jpg" || rm -f "$OUT/thumbnails/${name}.jpg"
+          done
+
+          python -m yt_dlp --dump-single-json --no-playlist "$TED_URL" > "$OUT/ted-info.json" || true
+          python -m yt_dlp \
+            --no-playlist \
+            -f 'bv*[height<=720]+ba/b[height<=720]/b' \
+            --merge-output-format mp4 \
+            --remux-video mp4 \
+            -o 'work/6Af6b_wyiwI/source_video.%(ext)s' \
+            "$TED_URL" || true
+
+          python - <<'PY'
+          from pathlib import Path
+          import json
+          from PIL import Image
+
+          work = Path('work/6Af6b_wyiwI')
+          target = work / 'source_video.mp4'
+          if not target.exists():
+              candidates = [p for p in work.glob('source_video.*') if p.is_file()]
+              for source in candidates:
+                  if source.suffix.lower() == '.mp4':
+                      source.replace(target)
+                      break
+          out = work / 'public_source'
+          print('video_exists', target.exists(), target.stat().st_size if target.exists() else None)
+          for path in sorted(out.glob('*.jpg')) + sorted((out / 'thumbnails').glob('*.jpg')):
+              try:
+                  with Image.open(path) as im:
+                      print(path, im.size, path.stat().st_size)
+              except Exception as exc:
+                  print('bad image', path, exc)
+          for path in (out / 'ted-page.html', out / 'rev-transcript.html', out / 'oembed.json'):
+              print(path, path.stat().st_size)
+          PY
+
+          test -s "$OUT/ted-page.html"
+          test -s "$OUT/rev-transcript.html"
+          test -s "$OUT/oembed.json"
+          test -s "$OUT/bill-gates-ted-stage.jpg"
+          test -n "$(find "$OUT/thumbnails" -type f -name '*.jpg' -print -quit)"
+
+      - name: Upload source bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: shot-n-clip-bill-gates-2015-source-bundle
+          compression-level: 3
+          retention-days: 2
+          path: |
+            work/6Af6b_wyiwI/public_source
+            work/6Af6b_wyiwI/source_video.mp4
+          if-no-files-found: warn
