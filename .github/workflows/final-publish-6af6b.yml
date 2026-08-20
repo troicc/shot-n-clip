@@ -17,11 +17,11 @@ jobs:
   prepare:
     if: github.event_name == 'push' || github.head_ref == 'agent/final-publish-6af6b'
     runs-on: ubuntu-22.04
-    timeout-minutes: 15
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
 
-      - name: Download public metadata and visual references
+      - name: Download public transcript, visual references and TED HLS video
         shell: bash
         run: |
           set -euo pipefail
@@ -47,19 +47,26 @@ jobs:
               -o "$OUT/thumbnails/${name}.jpg" || rm -f "$OUT/thumbnails/${name}.jpg"
           done
 
+          ffmpeg -hide_banner -loglevel warning -y \
+            -i 'https://hls.ted.com/project_masters/11314/manifest.m3u8?intro_master_id=9294&preview' \
+            -vf 'scale=-2:540' -c:v libx264 -preset veryfast -crf 24 \
+            -pix_fmt yuv420p -c:a aac -b:a 96k -movflags +faststart \
+            "$OUT/source_video.mp4"
+
           test -s "$OUT/oembed.json"
           test -s "$OUT/ted-talk.html"
           test -s "$OUT/bill-gates-ted-stage.jpg"
+          test -s "$OUT/source_video.mp4"
           test -n "$(find "$OUT/thumbnails" -type f -name '*.jpg' -print -quit)"
 
           echo 'Downloaded files:'
           find "$OUT" -maxdepth 2 -type f -print0 | xargs -0 ls -lh
-          file "$OUT"/*.jpg "$OUT"/thumbnails/*.jpg | head -30
+          ffprobe -v error -show_entries format=duration,size -of default=nw=1 "$OUT/source_video.mp4"
 
       - name: Upload source bundle
         uses: actions/upload-artifact@v4
         with:
-          name: shot-n-clip-6Af6b-source-bundle
-          compression-level: 6
+          name: shot-n-clip-6Af6b-source-bundle-with-video
+          compression-level: 0
           retention-days: 2
           path: work/6Af6b_wyiwI/public_source
