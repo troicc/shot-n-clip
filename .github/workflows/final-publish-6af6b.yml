@@ -24,12 +24,12 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Download public transcript, visual references and TED HLS video
+      - name: Download public transcript, visual references and local HLS bundle
         shell: bash
         run: |
           set -euo pipefail
           OUT='work/6Af6b_wyiwI/public_source'
-          mkdir -p "$OUT/thumbnails"
+          mkdir -p "$OUT/thumbnails" "$OUT/hls"
           UA='Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/150 Safari/537.36'
 
           curl --fail --location --retry 4 --retry-all-errors --user-agent "$UA" \
@@ -50,32 +50,118 @@ jobs:
               -o "$OUT/thumbnails/${name}.jpg" || rm -f "$OUT/thumbnails/${name}.jpg"
           done
 
-          python -m pip install --quiet imageio-ffmpeg
-          FFMPEG="$(python - <<'PY'
-          import imageio_ffmpeg
-          print(imageio_ffmpeg.get_ffmpeg_exe())
+          python - <<'PY'
+          from __future__ import annotations
+          import re
+          import time
+          from pathlib import Path
+          from urllib.parse import urljoin, urlparse
+          from urllib.request import Request, urlopen
+
+          master_url = 'https://hls.ted.com/project_masters/11314/manifest.m3u8?intro_master_id=9294&preview'
+          out = Path('work/6Af6b_wyiwI/public_source/hls')
+          out.mkdir(parents=True, exist_ok=True)
+          ua = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/150 Safari/537.36'
+
+          def fetch(url: str) -> bytes:
+              last = None
+              for attempt in range(5):
+                  try:
+                      req = Request(url, headers={'User-Agent': ua, 'Accept': '*/*'})
+                      with urlopen(req, timeout=60) as response:
+                          return response.read()
+                  except Exception as exc:
+                      last = exc
+                      time.sleep(1.5 * (attempt + 1))
+              raise RuntimeError(f'failed to fetch {url}: {last}')
+
+          master = fetch(master_url).decode('utf-8', 'replace')
+          (out / 'master.m3u8').write_text(master, encoding='utf-8')
+          lines = [line.strip() for line in master.splitlines()]
+          variants = []
+          for index, line in enumerate(lines):
+              if not line.startswith('#EXT-X-STREAM-INF:'):
+                  continue
+              attrs = line.split(':', 1)[1]
+              bw_match = re.search(r'BANDWIDTH=(\d+)', attrs)
+              res_match = re.search(r'RESOLUTION=(\d+)x(\d+)', attrs)
+              uri = ''
+              for candidate in lines[index + 1:]:
+                  if candidate and not candidate.startswith('#'):
+                      uri = candidate
+                      break
+              if not uri:
+                  continue
+              variants.append({
+                  'bandwidth': int(bw_match.group(1)) if bw_match else 0,
+                  'height': int(res_match.group(2)) if res_match else 0,
+                  'uri': uri,
+              })
+          if not variants:
+              raise RuntimeError('no HLS variants found')
+          eligible = [v for v in variants if 360 <= v['height'] <= 720]
+          selected = max(eligible or variants, key=lambda v: v['bandwidth'])
+          media_url = urljoin(master_url, selected['uri'])
+          media = fetch(media_url).decode('utf-8', 'replace')
+          print('selected HLS variant:', selected, media_url)
+
+          rewritten = []
+          segment_index = 0
+          map_index = 0
+          key_index = 0
+          for raw_line in media.splitlines():
+              line = raw_line.strip()
+              if line.startswith('#EXT-X-MAP:'):
+                  match = re.search(r'URI="([^"]+)"', line)
+                  if match:
+                      remote = urljoin(media_url, match.group(1))
+                      suffix = Path(urlparse(remote).path).suffix or '.mp4'
+                      name = f'init-{map_index:02d}{suffix}'
+                      (out / name).write_bytes(fetch(remote))
+                      map_index += 1
+                      line = line[:match.start(1)] + name + line[match.end(1):]
+              elif line.startswith('#EXT-X-KEY:'):
+                  match = re.search(r'URI="([^"]+)"', line)
+                  if match:
+                      remote = urljoin(media_url, match.group(1))
+                      suffix = Path(urlparse(remote).path).suffix or '.key'
+                      name = f'key-{key_index:02d}{suffix}'
+                      (out / name).write_bytes(fetch(remote))
+                      key_index += 1
+                      line = line[:match.start(1)] + name + line[match.end(1):]
+              elif line and not line.startswith('#'):
+                  remote = urljoin(media_url, line)
+                  suffix = Path(urlparse(remote).path).suffix or '.ts'
+                  name = f'segment-{segment_index:05d}{suffix}'
+                  (out / name).write_bytes(fetch(remote))
+                  segment_index += 1
+                  line = name
+              rewritten.append(line)
+
+          if segment_index == 0:
+              raise RuntimeError('media playlist had no segments')
+          (out / 'local.m3u8').write_text('\n'.join(rewritten) + '\n', encoding='utf-8')
+          (out / 'selected-variant.txt').write_text(
+              f"bandwidth={selected['bandwidth']}\nheight={selected['height']}\nurl={media_url}\nsegments={segment_index}\n",
+              encoding='utf-8',
+          )
+          print('downloaded segments:', segment_index)
           PY
-          )"
-          "$FFMPEG" -hide_banner -loglevel warning -y \
-            -i 'https://hls.ted.com/project_masters/11314/manifest.m3u8?intro_master_id=9294&preview' \
-            -vf 'scale=-2:540' -c:v libx264 -preset veryfast -crf 24 \
-            -pix_fmt yuv420p -c:a aac -b:a 96k -movflags +faststart \
-            "$OUT/source_video.mp4"
 
           test -s "$OUT/oembed.json"
           test -s "$OUT/ted-talk.html"
           test -s "$OUT/bill-gates-ted-stage.jpg"
-          test -s "$OUT/source_video.mp4"
+          test -s "$OUT/hls/local.m3u8"
+          test -n "$(find "$OUT/hls" -type f -name 'segment-*' -print -quit)"
           test -n "$(find "$OUT/thumbnails" -type f -name '*.jpg' -print -quit)"
 
           echo 'Downloaded files:'
-          find "$OUT" -maxdepth 2 -type f -print0 | xargs -0 ls -lh
-          "$FFMPEG" -hide_banner -i "$OUT/source_video.mp4" -f null - 2>&1 | tail -8
+          find "$OUT" -maxdepth 2 -type f -print0 | xargs -0 ls -lh | tail -40
 
       - name: Upload source bundle
         uses: actions/upload-artifact@v4
         with:
-          name: shot-n-clip-6Af6b-source-bundle-with-video
+          name: shot-n-clip-6Af6b-source-bundle-with-hls
           compression-level: 0
           retention-days: 2
           path: work/6Af6b_wyiwI/public_source
