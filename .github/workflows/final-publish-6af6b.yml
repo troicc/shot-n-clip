@@ -6,12 +6,16 @@ on:
       - agent/final-publish-6af6b
     paths:
       - .github/workflows/final-publish-6af6b.yml
+  pull_request:
+    branches:
+      - main
 
 permissions:
   contents: read
 
 jobs:
   prepare:
+    if: github.event_name == 'push' || github.head_ref == 'agent/final-publish-6af6b'
     runs-on: ubuntu-22.04
     timeout-minutes: 15
     steps:
@@ -54,7 +58,7 @@ jobs:
           test -n "$(find "$OUT/thumbnails" -type f -name '*.jpg' -print -quit)"
 
           echo 'Downloaded files:'
-          find "$OUT" -type f -maxdepth 2 -print0 | xargs -0 ls -lh
+          find "$OUT" -maxdepth 2 -type f -print0 | xargs -0 ls -lh
           file "$OUT"/*.jpg "$OUT"/thumbnails/*.jpg | head -30
 
       - name: Upload source bundle
